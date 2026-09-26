@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { X, Sparkles, User, Shield } from 'lucide-react';
+import { X, User, Shield } from 'lucide-react';
 import { CharacterCustomization } from '../types';
 import { CharacterModel } from '../engine/character';
 
@@ -25,7 +25,7 @@ const HAIR_COLORS = [
   { name: 'Crimson Red', value: '#b32428' },
   { name: 'Midnight Black', value: '#1a1a24' },
   { name: 'Silver White', value: '#e2e8f0' },
-  { name: 'Cyan Anime', value: '#06b6d4' },
+  { name: 'Forest Jade', value: '#16a34a' },
   { name: 'Arcane Violet', value: '#8b5cf6' }
 ];
 
@@ -49,10 +49,10 @@ const TUNIC_COLORS = [
 
 const ARMOR_TIERS: Array<{ id: CharacterCustomization['armorTier']; label: string }> = [
   { id: 'none', label: 'Casual Tunic' },
-  { id: 'leather', label: 'Leather Brigandine' },
-  { id: 'iron', label: 'Iron Plate Armor' },
-  { id: 'gold', label: 'Gilded Royal Plate' },
-  { id: 'ruby', label: 'Luminous Ruby Armor' }
+  { id: 'leather', label: 'Leather Brigandine (+1 DEF)' },
+  { id: 'iron', label: 'Iron Plate (+2 DEF)' },
+  { id: 'gold', label: 'Gilded Royal Plate (+2 DEF)' },
+  { id: 'ruby', label: 'Luminous Ruby Armor (+3 DEF)' }
 ];
 
 export const CharacterModal: React.FC<CharacterModalProps> = ({
@@ -71,14 +71,16 @@ export const CharacterModal: React.FC<CharacterModalProps> = ({
     let animId: number;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x13151f);
+    scene.background = new THREE.Color(0x181410);
 
     const camera = new THREE.PerspectiveCamera(40, container.clientWidth / container.clientHeight, 0.1, 50);
     camera.position.set(0, 1.0, 3.2);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
     renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
+    renderer.domElement.style.imageRendering = 'pixelated';
     container.appendChild(renderer.domElement);
 
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.9);
@@ -92,15 +94,14 @@ export const CharacterModal: React.FC<CharacterModalProps> = ({
     fillLight.position.set(-3, 2, -2);
     scene.add(fillLight);
 
-    // Pedestal disk
+    // Stone pedestal
     const pedestal = new THREE.Mesh(
       new THREE.CylinderGeometry(0.8, 0.9, 0.1, 16),
-      new THREE.MeshLambertMaterial({ color: 0x222638 })
+      new THREE.MeshLambertMaterial({ color: 0x33281e })
     );
     pedestal.position.set(0, -0.05, 0);
     scene.add(pedestal);
 
-    // Character
     const character = new CharacterModel(customization);
     characterRef.current = character;
     scene.add(character.group);
@@ -128,52 +129,55 @@ export const CharacterModal: React.FC<CharacterModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-3xl bg-gray-950 border-2 border-stone-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 font-pixel select-none">
+      <div className="relative w-full max-w-3xl pixel-box-wood flex flex-col max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-stone-900/90 border-b border-stone-800">
+        <div className="flex items-center justify-between px-5 py-3 bg-[#24170e] border-b-4 border-[#160e09]">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-lg border border-indigo-500/30">
+            <div className="p-2 pixel-box-slot text-[#fbbf24]">
               <User className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-pixel text-stone-100">Character Wardrobe</h2>
-              <p className="text-xs text-stone-400">Semi-blocky 32-bit pixel humanoid customization</p>
+              <h2 className="text-xs sm:text-sm text-[#f5eedc] uppercase">CHARACTER WARDROBE</h2>
+              <p className="text-[8px] text-[#c49a6c]">CUSTOMIZE 8-BIT APPEARANCE & OUTFIT</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-stone-400 hover:text-white rounded-lg hover:bg-stone-800 transition"
+            className="pixel-btn-danger p-1.5"
+            title="Close"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 text-[#fef2f2]" />
           </button>
         </div>
 
-        {/* Content Body */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 overflow-y-auto">
-          {/* Left: 3D Rotating Preview */}
-          <div className="flex flex-col items-center justify-center bg-stone-900/70 border border-stone-800 rounded-2xl p-4">
-            <div className="w-full h-64 rounded-xl overflow-hidden border border-stone-800 shadow-inner" ref={previewRef} />
-            <div className="mt-3 text-center">
-              <div className="text-xs font-pixel text-amber-400">Live 3D Preview</div>
-              <div className="text-[11px] text-stone-400 mt-0.5">Rotating semi-blocky character with equipped gear</div>
+        {/* Body Content */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 overflow-y-auto">
+          {/* Left: 3D Preview */}
+          <div className="flex flex-col items-center gap-3">
+            <div
+              ref={previewRef}
+              className="w-full h-64 pixel-box-slot overflow-hidden"
+            />
+            <div className="text-[8px] text-[#c49a6c] text-center uppercase">
+              ORBITING 32-BIT HERO MODEL
             </div>
           </div>
 
           {/* Right: Customization Controls */}
-          <div className="flex flex-col gap-4 overflow-y-auto pr-1 max-h-[420px]">
+          <div className="flex flex-col gap-4 text-[#e5e7eb]">
             {/* Hair Style */}
-            <div>
-              <label className="text-xs font-pixel text-stone-300 block mb-1.5">Hair Style</label>
+            <div className="pixel-box-stone p-3">
+              <label className="text-[9px] text-[#fde047] block mb-2 uppercase">HAIRSTYLE & COIF</label>
               <div className="grid grid-cols-2 gap-1.5">
                 {HAIR_STYLES.map(style => (
                   <button
                     key={style.id}
                     onClick={() => setCustomization({ ...customization, hairStyle: style.id })}
-                    className={`px-3 py-2 text-xs text-left rounded-lg border transition ${
+                    className={`p-2 text-left text-[8px] border-2 uppercase ${
                       customization.hairStyle === style.id
-                        ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-semibold'
-                        : 'bg-stone-900 border-stone-800 text-stone-300 hover:bg-stone-800'
+                        ? 'bg-[#4a3422] border-[#facc15] text-[#fef08a]'
+                        : 'pixel-btn-stone'
                     }`}
                   >
                     {style.label}
@@ -182,79 +186,84 @@ export const CharacterModal: React.FC<CharacterModalProps> = ({
               </div>
             </div>
 
-            {/* Hair Color */}
-            <div>
-              <label className="text-xs font-pixel text-stone-300 block mb-1.5">Hair Color</label>
+            {/* Hair Color Palette */}
+            <div className="pixel-box-stone p-3">
+              <label className="text-[9px] text-[#fde047] block mb-2 uppercase">HAIR COLOR</label>
               <div className="flex flex-wrap gap-2">
-                {HAIR_COLORS.map(col => (
+                {HAIR_COLORS.map(c => (
                   <button
-                    key={col.value}
-                    onClick={() => setCustomization({ ...customization, hairColor: col.value })}
-                    className={`w-7 h-7 rounded-full border-2 transition ${
-                      customization.hairColor === col.value ? 'border-amber-400 scale-110 shadow-lg' : 'border-stone-700 hover:scale-105'
+                    key={c.value}
+                    onClick={() => setCustomization({ ...customization, hairColor: c.value })}
+                    className={`w-7 h-7 border-2 ${
+                      customization.hairColor === c.value
+                        ? 'border-[#fde047] scale-110 shadow-md'
+                        : 'border-[#181a1e]'
                     }`}
-                    style={{ backgroundColor: col.value }}
-                    title={col.name}
+                    style={{ backgroundColor: c.value }}
+                    title={c.name}
                   />
                 ))}
               </div>
             </div>
 
             {/* Skin Tone */}
-            <div>
-              <label className="text-xs font-pixel text-stone-300 block mb-1.5">Skin Complexion</label>
+            <div className="pixel-box-stone p-3">
+              <label className="text-[9px] text-[#fde047] block mb-2 uppercase">COMPLEXION</label>
               <div className="flex flex-wrap gap-2">
-                {SKIN_TONES.map(skin => (
+                {SKIN_TONES.map(s => (
                   <button
-                    key={skin.value}
-                    onClick={() => setCustomization({ ...customization, skinTone: skin.value })}
-                    className={`w-7 h-7 rounded-full border-2 transition ${
-                      customization.skinTone === skin.value ? 'border-amber-400 scale-110 shadow-lg' : 'border-stone-700 hover:scale-105'
+                    key={s.value}
+                    onClick={() => setCustomization({ ...customization, skinTone: s.value })}
+                    className={`w-7 h-7 border-2 ${
+                      customization.skinTone === s.value
+                        ? 'border-[#fde047] scale-110 shadow-md'
+                        : 'border-[#181a1e]'
                     }`}
-                    style={{ backgroundColor: skin.value }}
-                    title={skin.name}
+                    style={{ backgroundColor: s.value }}
+                    title={s.name}
                   />
                 ))}
               </div>
             </div>
 
             {/* Tunic Color */}
-            <div>
-              <label className="text-xs font-pixel text-stone-300 block mb-1.5">Tunic Fabric Color</label>
+            <div className="pixel-box-stone p-3">
+              <label className="text-[9px] text-[#fde047] block mb-2 uppercase">TUNIC DYE COLOR</label>
               <div className="flex flex-wrap gap-2">
-                {TUNIC_COLORS.map(tunic => (
+                {TUNIC_COLORS.map(t => (
                   <button
-                    key={tunic.value}
-                    onClick={() => setCustomization({ ...customization, tunicColor: tunic.value })}
-                    className={`w-7 h-7 rounded-full border-2 transition ${
-                      customization.tunicColor === tunic.value ? 'border-amber-400 scale-110 shadow-lg' : 'border-stone-700 hover:scale-105'
+                    key={t.value}
+                    onClick={() => setCustomization({ ...customization, tunicColor: t.value })}
+                    className={`w-7 h-7 border-2 ${
+                      customization.tunicColor === t.value
+                        ? 'border-[#fde047] scale-110 shadow-md'
+                        : 'border-[#181a1e]'
                     }`}
-                    style={{ backgroundColor: tunic.value }}
-                    title={tunic.name}
+                    style={{ backgroundColor: t.value }}
+                    title={t.name}
                   />
                 ))}
               </div>
             </div>
 
             {/* Armor Tier */}
-            <div>
-              <label className="text-xs font-pixel text-stone-300 block mb-1.5 flex items-center gap-1.5">
-                <Shield className="w-3.5 h-3.5 text-amber-400" /> Equipped Armor Set
+            <div className="pixel-box-stone p-3">
+              <label className="text-[9px] text-[#fde047] flex items-center gap-1.5 mb-2 uppercase">
+                <Shield className="w-3.5 h-3.5 text-[#fbbf24]" />
+                <span>ARMOR APPAREL TIER</span>
               </label>
-              <div className="grid grid-cols-1 gap-1.5">
-                {ARMOR_TIERS.map(tier => (
+              <div className="flex flex-col gap-1.5">
+                {ARMOR_TIERS.map(a => (
                   <button
-                    key={tier.id}
-                    onClick={() => setCustomization({ ...customization, armorTier: tier.id })}
-                    className={`px-3 py-2 text-xs text-left rounded-lg border transition flex items-center justify-between ${
-                      customization.armorTier === tier.id
-                        ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-semibold'
-                        : 'bg-stone-900 border-stone-800 text-stone-300 hover:bg-stone-800'
+                    key={a.id}
+                    onClick={() => setCustomization({ ...customization, armorTier: a.id })}
+                    className={`p-2 text-left text-[8px] border-2 uppercase ${
+                      customization.armorTier === a.id
+                        ? 'bg-[#4a3422] border-[#facc15] text-[#fef08a]'
+                        : 'pixel-btn-stone'
                     }`}
                   >
-                    <span>{tier.label}</span>
-                    {tier.id === 'ruby' && <span className="text-[10px] text-rose-400 font-pixel">Mystic Glow</span>}
-                    {tier.id === 'gold' && <span className="text-[10px] text-amber-400 font-pixel">Royal</span>}
+                    {a.label}
                   </button>
                 ))}
               </div>
@@ -263,12 +272,12 @@ export const CharacterModal: React.FC<CharacterModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end px-6 py-4 bg-stone-900/90 border-t border-stone-800">
+        <div className="px-5 py-3 bg-[#24170e] border-t-4 border-[#160e09] flex justify-end">
           <button
             onClick={onClose}
-            className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-stone-950 font-pixel text-xs rounded-xl shadow-lg transition active:scale-95 font-bold"
+            className="pixel-btn-gold py-2 px-6 text-[10px] uppercase font-bold"
           >
-            Apply & Return to Game
+            CONFIRM STYLE
           </button>
         </div>
       </div>

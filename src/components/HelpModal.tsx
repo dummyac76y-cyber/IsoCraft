@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, HelpCircle, Gamepad2, Pickaxe, Eye, Sparkles, ShieldAlert } from 'lucide-react';
+import { X, Gamepad2, Eye, ShieldAlert, Sparkles, Map } from 'lucide-react';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -10,157 +10,120 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-2xl bg-gray-950 border-2 border-stone-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 font-pixel select-none">
+      <div className="relative w-full max-w-2xl pixel-box-wood flex flex-col max-h-[88vh] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 bg-stone-900/90 border-b border-stone-800">
+        <div className="flex items-center justify-between px-5 py-3 bg-[#24170e] border-b-4 border-[#160e09]">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg border border-amber-500/30">
+            <div className="p-2 pixel-box-slot text-[#fbbf24]">
               <Gamepad2 className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-pixel text-stone-100">Adventurer's Guide</h2>
-              <p className="text-xs text-stone-400">Master the 3D Isometric Voxel Sandbox realm</p>
+              <h2 className="text-xs sm:text-sm text-[#f5eedc] uppercase">ADVENTURER'S MANUAL</h2>
+              <p className="text-[8px] text-[#c49a6c]">CONTROLS, VISION & INFINITE REALM GUIDE</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-stone-400 hover:text-white rounded-lg hover:bg-stone-800 transition"
+            className="pixel-btn-danger p-1.5"
+            title="Close"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 text-[#fef2f2]" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6 overflow-y-auto flex flex-col gap-5 text-stone-300">
-          {/* Controls Grid */}
-          <div>
-            <h3 className="text-xs font-pixel text-amber-400 mb-3 flex items-center gap-2">
-              <Gamepad2 className="w-4 h-4" /> Movement & Combat Controls
+        <div className="p-5 overflow-y-auto flex flex-col gap-4 text-[#e5e7eb]">
+          {/* Movement & Core Interactions */}
+          <div className="pixel-box-stone p-3">
+            <h3 className="text-[9px] text-[#fde047] mb-2 uppercase flex items-center gap-2">
+              <Gamepad2 className="w-4 h-4 text-[#fde047]" />
+              <span>MOVEMENT & WORLD INTERACTIONS</span>
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Move Character</span>
-                <span className="font-pixel text-amber-300">W, A, S, D</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[8px]">
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">MOVE HERO</span>
+                <span className="text-[#fde047]">W, A, S, D</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Sprint / Run</span>
-                <span className="font-pixel text-amber-300">Shift (Hold)</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">SPRINT / RUN</span>
+                <span className="text-[#fde047]">SHIFT (HOLD)</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Jump / Swim Up</span>
-                <span className="font-pixel text-amber-300">Space</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">JUMP / SWIM UP</span>
+                <span className="text-[#fde047]">SPACE</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Click-to-Move / Interact</span>
-                <span className="font-pixel text-cyan-300">Left Click (Ground/NPC/Chest)</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center border border-[#38bdf8]">
+                <span className="text-[#38bdf8]">AUTO-PATHFIND</span>
+                <span className="text-[#fde047]">SHIFT + LEFT CLICK</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Cancel Pathfinding</span>
-                <span className="font-pixel text-amber-300">Press W / A / S / D</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">MINE BLOCK / ATTACK</span>
+                <span className="text-[#fde047]">LEFT CLICK</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Mine Block / Attack Mob</span>
-                <span className="font-pixel text-amber-300">Left Click (Hold)</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">PLACE BLOCK / USE</span>
+                <span className="text-[#fde047]">RIGHT CLICK</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Place Block / Interact</span>
-                <span className="font-pixel text-amber-300">Right Click</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">OPEN BACKPACK</span>
+                <span className="text-[#fde047]">I / TAB</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Open Inventory & Bag</span>
-                <span className="font-pixel text-amber-300">I / Tab</span>
-              </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Character Customizer</span>
-                <span className="font-pixel text-amber-300">C</span>
-              </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Hotbar Slots 1-9</span>
-                <span className="font-pixel text-amber-300">Keys 1 - 9</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">HOTBAR SLOTS</span>
+                <span className="text-[#fde047]">KEYS 1 - 9</span>
               </div>
             </div>
           </div>
 
-          {/* Isometric Camera Controls */}
-          <div>
-            <h3 className="text-xs font-pixel text-amber-400 mb-3 flex items-center gap-2">
-              <Eye className="w-4 h-4" /> 2.5D Isometric Camera Controls
+          {/* Camera Controls */}
+          <div className="pixel-box-stone p-3">
+            <h3 className="text-[9px] text-[#fde047] mb-2 uppercase flex items-center gap-2">
+              <Eye className="w-4 h-4 text-[#fde047]" />
+              <span>ISOMETRIC CAMERA SYSTEM</span>
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Orbit / Rotate Camera</span>
-                <span className="font-pixel text-amber-300">Hold Middle Mouse & Drag X</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[8px]">
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">ROTATE LEFT / RIGHT</span>
+                <span className="text-[#fde047]">Q / E</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Adjust Pitch / Elevation</span>
-                <span className="font-pixel text-amber-300">Hold Middle Mouse & Drag Y</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">RESET PERSPECTIVE</span>
+                <span className="text-[#fde047]">R</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Zoom In & Zoom Out</span>
-                <span className="font-pixel text-amber-300">Mouse Wheel Scroll</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">FREE ORBIT & TILT</span>
+                <span className="text-[#fde047]">HOLD MID-CLICK DRAG</span>
               </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Rotate Camera Left</span>
-                <span className="font-pixel text-amber-300">Q</span>
-              </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Rotate Camera Right</span>
-                <span className="font-pixel text-amber-300">E</span>
-              </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-stone-800 flex justify-between items-center">
-                <span className="text-stone-400">Reset to Default View</span>
-                <span className="font-pixel text-amber-300">R</span>
-              </div>
-              <div className="p-2.5 bg-stone-900/80 rounded-lg border border-cyan-800/50 flex justify-between items-center">
-                <span className="text-cyan-300">Auto-Rotate Follow Camera</span>
-                <span className="font-pixel text-cyan-400">Toolbar Button (ON/OFF)</span>
+              <div className="p-2 pixel-box-slot flex justify-between items-center">
+                <span className="text-[#c49a6c]">ZOOM RANGE (25%-150%)</span>
+                <span className="text-[#fde047]">MOUSE WHEEL / +/-</span>
               </div>
             </div>
           </div>
 
-          {/* Isometric Perspective */}
-          <div className="bg-stone-900/60 p-4 border border-stone-800 rounded-xl">
-            <h3 className="text-xs font-pixel text-amber-400 mb-1.5 flex items-center gap-2">
-              <Eye className="w-4 h-4" /> 2.5D Isometric Presentation
+          {/* Dynamic Occlusion & Infinite Realm */}
+          <div className="pixel-box-wood p-3 text-[8px] flex flex-col gap-2">
+            <h3 className="text-[9px] text-[#86efac] uppercase flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-[#86efac]" />
+              <span>DYNAMIC OCCLUSION & INFINITE EXPLORATION</span>
             </h3>
-            <p className="text-xs text-stone-300 leading-relaxed">
-              The camera looks down at the 3D voxel world from an authentic ~45-degree angle with orthographic projection. Movement is naturally aligned with the isometric viewpoint, allowing you to see multiple vertical tiers of terrain, caves, and building roofs simultaneously.
+            <p className="text-[#c49a6c] leading-relaxed">
+              • <strong className="text-[#f5eedc]">DYNAMIC OCCLUSION:</strong> When entering buildings or walking behind walls, obstructing blocks are smoothly cut away with authentic pixel-art edges. Floors, furniture, chests, NPCs, and your hero always stay visible!
             </p>
-          </div>
-
-          {/* Mining & Crafting Guide */}
-          <div className="bg-stone-900/60 p-4 border border-stone-800 rounded-xl">
-            <h3 className="text-xs font-pixel text-amber-400 mb-1.5 flex items-center gap-2">
-              <Pickaxe className="w-4 h-4" /> Mining & Crafting Progression
-            </h3>
-            <ul className="text-xs text-stone-300 space-y-1.5 list-disc list-inside">
-              <li>Chop Wood Logs from trees to craft Planks and Sticks.</li>
-              <li>Create a Crafting Table to unlock advanced tools and swords.</li>
-              <li>Craft a Wooden Pickaxe, then dig down into stone to harvest Cobblestone.</li>
-              <li>Craft Stone and Iron Pickaxes to extract Coal, Iron, Gold, and glowing Ruby gems.</li>
-              <li>Craft Torches and Lanterns to illuminate caves and night surroundings.</li>
-            </ul>
-          </div>
-
-          {/* Mobs & Survival */}
-          <div className="bg-stone-900/60 p-4 border border-stone-800 rounded-xl">
-            <h3 className="text-xs font-pixel text-amber-400 mb-1.5 flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4" /> Enemies & Wildlife
-            </h3>
-            <p className="text-xs text-stone-300 leading-relaxed">
-              Watch out for Bouncy Slimes, Crypt Skeletons, and Goblins lurking around ruins and caves! Swing your sword with Left Click to defeat them for XP, bones, and gold nuggets. Peaceful sheep roam the grassy meadows.
+            <p className="text-[#c49a6c] leading-relaxed">
+              • <strong className="text-[#f5eedc]">INFINITE WORLD:</strong> The realm generates infinitely in all directions. Explore mountain peaks with snow, river canyons, ruins, farmlands, and subterranean ore veins without world boundaries!
             </p>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end px-6 py-4 bg-stone-900/90 border-t border-stone-800">
+        <div className="px-5 py-3 bg-[#24170e] border-t-4 border-[#160e09] flex justify-end">
           <button
             onClick={onClose}
-            className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-stone-950 font-pixel text-xs rounded-xl shadow-lg transition active:scale-95 font-bold"
+            className="pixel-btn-gold py-2 px-6 text-[10px] uppercase font-bold"
           >
-            Got It!
+            UNDERSTOOD
           </button>
         </div>
       </div>

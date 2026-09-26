@@ -64,7 +64,7 @@ export const BLOCK_DEFS: Record<BlockType, BlockDef> = {
   [BlockType.WATER]: {
     id: BlockType.WATER,
     name: 'Water',
-    hardness: 9999, // Unbreakable with basic tools
+    hardness: 9999,
     soundType: 'sand',
     isSolid: false,
     isTransparent: true
@@ -300,519 +300,131 @@ export const BLOCK_DEFS: Record<BlockType, BlockDef> = {
   }
 };
 
-export class VoxelWorld {
-  public width: number;
-  public depth: number;
-  public height: number;
-  private blocks: Uint8Array;
+export const CHUNK_SIZE = 16;
+export const CHUNK_HEIGHT = 32;
+
+// Pseudo-random noise helpers for infinite procedural generation
+function hash2D(x: number, z: number, seed: number): number {
+  const n = Math.sin(x * 127.1 + z * 311.7 + seed * 99.3) * 43758.5453123;
+  return n - Math.floor(n);
+}
+
+function noise2D(x: number, z: number, seed: number): number {
+  const iX = Math.floor(x);
+  const iZ = Math.floor(z);
+  const fX = x - iX;
+  const fZ = z - iZ;
+
+  // Cubic smoothstep interpolation
+  const u = fX * fX * (3.0 - 2.0 * fX);
+  const v = fZ * fZ * (3.0 - 2.0 * fZ);
+
+  const a = hash2D(iX, iZ, seed);
+  const b = hash2D(iX + 1, iZ, seed);
+  const c = hash2D(iX, iZ + 1, seed);
+  const d = hash2D(iX + 1, iZ + 1, seed);
+
+  return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
+}
+
+function fbm2D(x: number, z: number, seed: number, octaves: number = 4): number {
+  let value = 0;
+  let amplitude = 0.5;
+  let frequency = 1.0;
+  for (let i = 0; i < octaves; i++) {
+    value += noise2D(x * frequency, z * frequency, seed + i * 1337) * amplitude;
+    amplitude *= 0.5;
+    frequency *= 2.0;
+  }
+  return value;
+}
+
+/**
+ * Single Chunk in the Infinite Voxel World
+ */
+export class VoxelChunk {
+  public cx: number;
+  public cz: number;
+  public blocks: Uint8Array;
   public group: THREE.Group;
-  private instancedMeshes: Map<BlockType, THREE.InstancedMesh> = new Map();
-  // Mapping from (mesh, instanceId) to block coordinate [x, y, z]
-  private instanceCoords: Map<BlockType, Array<[number, number, number]>> = new Map();
-  // Active light sources from torches/lanterns
-  public lightSources: Array<{ x: number; y: number; z: number; color: number; intensity: number; light?: THREE.PointLight }> = [];
-  public chestContents: Map<string, Item[]> = new Map(); // key "x,y,z"
+  public instancedMeshes: Map<BlockType, THREE.InstancedMesh> = new Map();
+  public instanceCoords: Map<BlockType, Array<[number, number, number]>> = new Map();
+  public isDirty: boolean = true;
+  private boxGeo: THREE.BoxGeometry;
 
-  constructor(width: number = 48, depth: number = 48, height: number = 24) {
-    this.width = width;
-    this.depth = depth;
-    this.height = height;
-    this.blocks = new Uint8Array(width * depth * height);
+  constructor(cx: number, cz: number) {
+    this.cx = cx;
+    this.cz = cz;
+    this.blocks = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT);
     this.group = new THREE.Group();
-    this.group.name = 'VoxelWorld';
+    this.group.name = `Chunk_${cx}_${cz}`;
+    this.boxGeo = new THREE.BoxGeometry(1, 1, 1);
   }
 
-  // Expandable Map Resizer
-  public resize(width: number, depth: number, height: number = 24) {
-    this.width = width;
-    this.depth = depth;
-    this.height = height;
-    this.blocks = new Uint8Array(width * depth * height);
-    this.instancedMeshes.forEach(mesh => {
-      this.group.remove(mesh);
-      mesh.geometry.dispose();
-    });
-    this.instancedMeshes.clear();
-    this.instanceCoords.clear();
-    this.lightSources = [];
-    this.chestContents.clear();
-  }
-
-  private getIndex(x: number, y: number, z: number): number {
-    if (x < 0 || x >= this.width || y < 0 || y >= this.height || z < 0 || z >= this.depth) {
+  public getIndex(lx: number, ly: number, lz: number): number {
+    if (lx < 0 || lx >= CHUNK_SIZE || ly < 0 || ly >= CHUNK_HEIGHT || lz < 0 || lz >= CHUNK_SIZE) {
       return -1;
     }
-    return x + z * this.width + y * this.width * this.depth;
+    return lx + lz * CHUNK_SIZE + ly * CHUNK_SIZE * CHUNK_SIZE;
   }
 
-  public getBlock(x: number, y: number, z: number): BlockType {
-    const idx = this.getIndex(x, y, z);
+  public getLocalBlock(lx: number, ly: number, lz: number): BlockType {
+    const idx = this.getIndex(lx, ly, lz);
     if (idx === -1) return BlockType.AIR;
     return this.blocks[idx] as BlockType;
   }
 
-  public setBlock(x: number, y: number, z: number, type: BlockType): boolean {
-    const idx = this.getIndex(x, y, z);
+  public setLocalBlock(lx: number, ly: number, lz: number, type: BlockType): boolean {
+    const idx = this.getIndex(lx, ly, lz);
     if (idx === -1) return false;
     this.blocks[idx] = type;
+    this.isDirty = true;
     return true;
   }
 
-  public isSolid(x: number, y: number, z: number): boolean {
-    const b = this.getBlock(x, y, z);
-    if (b === BlockType.AIR) return false;
-    return BLOCK_DEFS[b]?.isSolid ?? false;
-  }
-
-  // Check if a block has at least one transparent/air/non-solid neighbor (exposed face)
-  public isExposed(x: number, y: number, z: number): boolean {
-    const neighbors = [
-      [x + 1, y, z],
-      [x - 1, y, z],
-      [x, y + 1, z],
-      [x, y - 1, z],
-      [x, y, z + 1],
-      [x, y, z - 1]
-    ];
-    for (const [nx, ny, nz] of neighbors) {
-      if (nx < 0 || nx >= this.width || nz < 0 || nz >= this.depth || ny < 0 || ny >= this.height) {
-        return true;
-      }
-      const nb = this.getBlock(nx, ny, nz);
-      if (nb === BlockType.AIR || BLOCK_DEFS[nb]?.isTransparent || !BLOCK_DEFS[nb]?.isSolid) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // Procedural Terrain Generation with Layered Elevations & Biomes
-  public generate(preset: 'meadow' | 'canyon' | 'autumn' | 'mountain' | 'village' = 'meadow', seed: number = 42) {
-    this.blocks.fill(BlockType.AIR);
-    this.lightSources = [];
-    this.chestContents.clear();
-
-    const waterLevel = 6;
-    const isMountain = preset === 'mountain';
-    const isCanyon = preset === 'canyon';
-    const isVillage = preset === 'village';
-    const baseHeight = isMountain ? 9 : isCanyon ? 6 : 7;
-
-    for (let x = 0; x < this.width; x++) {
-      for (let z = 0; z < this.depth; z++) {
-        const nx = x / this.width - 0.5;
-        const nz = z / this.depth - 0.5;
-
-        // Smooth layered multi-octave hill noise
-        const hillScale = isMountain ? 5.5 : 3.5;
-        const hill1 = Math.sin(nx * 6.0 + seed * 0.1) * Math.cos(nz * 6.0 + seed * 0.2) * hillScale;
-        const hill2 = Math.sin((nx + nz) * 10.0) * (isMountain ? 2.5 : 1.8);
-        const hill3 = Math.cos(nx * 14.0 - nz * 8.0) * 0.8;
-
-        // River canyon carving through the landscape
-        const riverDist = Math.abs(nz + Math.sin(nx * 4 + seed) * 0.18);
-        let riverCarve = 0;
-        if (riverDist < 0.14) {
-          riverCarve = (1 - riverDist / 0.14) * (isCanyon ? 6.5 : 4.5);
-        }
-
-        let h = Math.floor(baseHeight + hill1 + hill2 + hill3 - riverCarve);
-        h = Math.max(2, Math.min(this.height - 5, h));
-
-        // Subterranean and surface blocks with clear vertical layering
-        for (let y = 0; y <= h; y++) {
-          let blockType: BlockType;
-
-          if (y === 0) {
-            // Bedrock layer
-            blockType = BlockType.STONE;
-          } else if (y === h) {
-            // Surface block depends on elevation!
-            if (h <= waterLevel + 1) {
-              // Shore & beach
-              blockType = BlockType.SAND;
-            } else if (h >= 15) {
-              // High mountain summits: pure snow
-              blockType = BlockType.SNOW;
-            } else if (h >= 13) {
-              // Highland peaks: snowy grass
-              blockType = BlockType.SNOW_GRASS;
-            } else {
-              // Lush valley: rich green grass
-              blockType = BlockType.GRASS;
-            }
-          } else if (y >= h - 2) {
-            if (h <= waterLevel + 1) {
-              blockType = BlockType.SAND;
-            } else if (h >= 15 && y >= h - 1) {
-              blockType = BlockType.SNOW;
-            } else {
-              blockType = BlockType.DIRT;
-            }
-          } else {
-            // Deep stone with ore veins
-            const oreRand = Math.sin(x * 12.7 + y * 45.3 + z * 88.1 + seed);
-            if (oreRand > 0.94) {
-              blockType = BlockType.RUBY_ORE;
-            } else if (oreRand > 0.88) {
-              blockType = BlockType.GOLD_ORE;
-            } else if (oreRand > 0.78) {
-              blockType = BlockType.IRON_ORE;
-            } else if (oreRand > 0.65) {
-              blockType = BlockType.COAL_ORE;
-            } else {
-              blockType = BlockType.STONE;
-            }
-          }
-
-          // Underground cave pocket carving
-          const caveNoise = Math.sin(x * 0.45) * Math.cos(y * 0.6) * Math.sin(z * 0.45);
-          if (y > 2 && y < h - 2 && caveNoise > 0.65) {
-            blockType = BlockType.AIR;
-          }
-
-          this.setBlock(x, y, z, blockType);
-        }
-
-        // Fill river water
-        if (h < waterLevel) {
-          for (let y = h + 1; y <= waterLevel; y++) {
-            this.setBlock(x, y, z, BlockType.WATER);
-          }
-        }
-      }
-    }
-
-    // Clear any mystery flower blocks so no grey boxes appear anywhere on the terrain
-    for (let i = 0; i < this.blocks.length; i++) {
-      if (this.blocks[i] === BlockType.FLOWER_RED || this.blocks[i] === BlockType.FLOWER_YELLOW) {
-        this.blocks[i] = BlockType.AIR;
-      }
-    }
-
-    // Add Trees across plateaus and mountain slopes
-    const treeCount = isMountain ? 8 : 14;
-    for (let i = 0; i < treeCount; i++) {
-      const tx = 5 + Math.floor((Math.sin(i * 99 + seed) * 0.5 + 0.5) * (this.width - 10));
-      const tz = 5 + Math.floor((Math.cos(i * 77 + seed) * 0.5 + 0.5) * (this.depth - 10));
-
-      for (let y = this.height - 6; y >= 3; y--) {
-        const ground = this.getBlock(tx, y, tz);
-        if (ground === BlockType.GRASS || ground === BlockType.SNOW_GRASS || ground === BlockType.SNOW) {
-          if (ground === BlockType.SNOW || ground === BlockType.SNOW_GRASS) {
-            this.buildPineTree(tx, y + 1, tz);
-          } else {
-            this.buildTree(tx, y + 1, tz);
-          }
-          break;
-        }
-      }
-    }
-
-    // Build Village / Ruins Cottage
-    const cottageX = Math.floor(this.width * 0.62);
-    const cottageZ = Math.floor(this.depth * 0.62);
-    this.buildRuinsStructure(cottageX, cottageZ);
-
-    // Build Village Farmland Plot with Wheat and Carrots
-    const farmX = Math.max(3, cottageX - 9);
-    const farmZ = Math.max(3, cottageZ - 3);
-    this.buildVillageFarm(farmX, farmZ);
-
-    // Build Cave Entrance leading underground
-    const caveX = Math.floor(this.width * 0.28);
-    const caveZ = Math.floor(this.depth * 0.32);
-    this.buildCaveEntrance(caveX, caveZ);
-
-    // Rebuild the 3D meshes
-    this.rebuildMeshes();
-  }
-
-  // Pine / Spruce Tree with Snowy Foliage
-  public buildPineTree(x: number, y: number, z: number) {
-    const trunkHeight = 5;
-    for (let dy = 0; dy < trunkHeight; dy++) {
-      this.setBlock(x, y + dy, z, BlockType.WOOD_LOG);
-    }
-    // Tiered pine foliage cone
-    for (let dy = 2; dy <= trunkHeight + 1; dy++) {
-      const radius = dy <= 3 ? 2 : dy === 4 ? 1 : 0;
-      const foliageY = y + dy;
-      for (let lx = -radius; lx <= radius; lx++) {
-        for (let lz = -radius; lz <= radius; lz++) {
-          if (radius === 2 && Math.abs(lx) === 2 && Math.abs(lz) === 2) continue;
-          const px = x + lx;
-          const pz = z + lz;
-          if (this.getBlock(px, foliageY, pz) === BlockType.AIR) {
-            this.setBlock(px, foliageY, pz, BlockType.LEAVES);
-            // Cap highest foliage with snow
-            if (dy >= trunkHeight) {
-              this.setBlock(px, foliageY + 1, pz, BlockType.SNOW);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Tree Builder (voxel trunk + leaf canopy)
-  public buildTree(x: number, y: number, z: number) {
-    const trunkHeight = 4 + Math.floor(Math.random() * 2);
-    for (let dy = 0; dy < trunkHeight; dy++) {
-      this.setBlock(x, y + dy, z, BlockType.WOOD_LOG);
-    }
-    // Leaves crown
-    const topY = y + trunkHeight;
-    for (let lx = -2; lx <= 2; lx++) {
-      for (let lz = -2; lz <= 2; lz++) {
-        for (let ly = -1; ly <= 1; ly++) {
-          if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && ly === 1) continue;
-          const px = x + lx;
-          const py = topY + ly;
-          const pz = z + lz;
-          if (this.getBlock(px, py, pz) === BlockType.AIR) {
-            this.setBlock(px, py, pz, BlockType.LEAVES);
-          }
-        }
-      }
-    }
-    // Leaf cap on top
-    this.setBlock(x, topY + 2, z, BlockType.LEAVES);
-    this.setBlock(x + 1, topY + 2, z, BlockType.LEAVES);
-    this.setBlock(x - 1, topY + 2, z, BlockType.LEAVES);
-    this.setBlock(x, topY + 2, z + 1, BlockType.LEAVES);
-    this.setBlock(x, topY + 2, z - 1, BlockType.LEAVES);
-  }
-
-  // Village Farmland Plot with Wheat and Carrots
-  public buildVillageFarm(startX: number, startZ: number) {
-    let baseY = 8;
-    for (let y = this.height - 5; y >= 2; y--) {
-      const b = this.getBlock(startX + 2, y, startZ + 2);
-      if (b === BlockType.GRASS || b === BlockType.DIRT) {
-        baseY = y;
-        break;
-      }
-    }
-
-    const fw = 7;
-    const fd = 6;
-
-    // Wooden border and tilled farmland
-    for (let dx = 0; dx < fw; dx++) {
-      for (let dz = 0; dz < fd; dz++) {
-        const px = startX + dx;
-        const pz = startZ + dz;
-        const isBorder = dx === 0 || dx === fw - 1 || dz === 0 || dz === fd - 1;
-
-        if (isBorder) {
-          this.setBlock(px, baseY, pz, BlockType.WOOD_LOG);
-        } else if (dx === 3) {
-          // Central irrigation canal
-          this.setBlock(px, baseY, pz, BlockType.WATER);
-        } else {
-          // Tilled farmland with crops
-          this.setBlock(px, baseY, pz, BlockType.FARMLAND);
-          if (dx < 3) {
-            // Wheat field
-            this.setBlock(px, baseY + 1, pz, BlockType.CROPS_WHEAT);
-          } else {
-            // Carrot patch
-            this.setBlock(px, baseY + 1, pz, BlockType.CROPS_CARROT);
-          }
-        }
-
-        // Ensure solid foundation under the farm down to solid ground so it is never hollow
-        for (let fillY = baseY - 1; fillY >= 1; fillY--) {
-          const below = this.getBlock(px, fillY, pz);
-          if (below === BlockType.AIR || below === BlockType.WATER) {
-            this.setBlock(px, fillY, pz, BlockType.DIRT);
-          } else {
-            break;
-          }
-        }
-      }
-    }
-
-    // Village Lamp Post beside farm
-    const postX = startX + fw;
-    const postZ = startZ + 2;
-    this.setBlock(postX, baseY + 1, postZ, BlockType.WOOD_LOG);
-    this.setBlock(postX, baseY + 2, postZ, BlockType.WOOD_LOG);
-    this.setBlock(postX, baseY + 3, postZ, BlockType.LANTERN);
-    this.lightSources.push({
-      x: postX,
-      y: baseY + 3,
-      z: postZ,
-      color: 0xffdd66,
-      intensity: 2.2
-    });
-  }
-
-  // Cave Entrance with steps leading down into subterranean ore veins
-  public buildCaveEntrance(startX: number, startZ: number) {
-    let baseY = 9;
-    for (let y = this.height - 5; y >= 4; y--) {
-      const b = this.getBlock(startX, y, startZ);
-      if (b === BlockType.GRASS || b === BlockType.DIRT || b === BlockType.STONE) {
-        baseY = y;
-        break;
-      }
-    }
-
-    // Carve descending cavern mouth
-    for (let step = 0; step < 5; step++) {
-      const cx = startX + step;
-      const cy = baseY - step;
-      for (let cz = startZ - 1; cz <= startZ + 1; cz++) {
-        // Hollow tunnel arch
-        this.setBlock(cx, cy + 1, cz, BlockType.AIR);
-        this.setBlock(cx, cy + 2, cz, BlockType.AIR);
-        this.setBlock(cx, cy + 3, cz, BlockType.AIR);
-        // Cobblestone walking steps
-        this.setBlock(cx, cy, cz, BlockType.COBBLESTONE);
-      }
-    }
-
-    // Subterranean mining chamber
-    const chamberX = startX + 6;
-    const chamberY = Math.max(2, baseY - 5);
-    const chamberZ = startZ;
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dz = -2; dz <= 2; dz++) {
-        for (let dy = 1; dy <= 3; dy++) {
-          this.setBlock(chamberX + dx, chamberY + dy, chamberZ + dz, BlockType.AIR);
-        }
-        this.setBlock(chamberX + dx, chamberY, chamberZ + dz, BlockType.COBBLESTONE);
-      }
-    }
-
-    // Wooden mine support beam
-    this.setBlock(chamberX - 1, chamberY + 1, chamberZ - 1, BlockType.WOOD_LOG);
-    this.setBlock(chamberX - 1, chamberY + 2, chamberZ - 1, BlockType.WOOD_LOG);
-    this.setBlock(chamberX - 1, chamberY + 3, chamberZ - 1, BlockType.WOOD_PLANKS);
-    this.setBlock(chamberX, chamberY + 3, chamberZ - 1, BlockType.WOOD_PLANKS);
-
-    // Exposed ore veins on cavern wall!
-    this.setBlock(chamberX + 2, chamberY + 1, chamberZ, BlockType.RUBY_ORE);
-    this.setBlock(chamberX + 2, chamberY + 2, chamberZ, BlockType.RUBY_ORE);
-    this.setBlock(chamberX, chamberY + 1, chamberZ + 2, BlockType.GOLD_ORE);
-    this.setBlock(chamberX - 1, chamberY + 2, chamberZ + 2, BlockType.IRON_ORE);
-
-    // Torch illuminating the cavern
-    this.setBlock(chamberX, chamberY + 2, chamberZ, BlockType.TORCH);
-    this.lightSources.push({
-      x: chamberX,
-      y: chamberY + 2,
-      z: chamberZ,
-      color: 0xffaa33,
-      intensity: 2.2
-    });
-  }
-
-  // Ruin / Cottage Structure
-  public buildRuinsStructure(startX: number, startZ: number) {
-    // Find ground elevation
-    let baseY = 8;
-    for (let y = this.height - 5; y >= 2; y--) {
-      if (this.getBlock(startX + 2, y, startZ + 2) === BlockType.GRASS || this.getBlock(startX + 2, y, startZ + 2) === BlockType.DIRT) {
-        baseY = y + 1;
-        break;
-      }
-    }
-
-    const w = 6;
-    const d = 6;
-    const h = 4;
-
-    // Floor (Wood Planks)
-    for (let dx = 0; dx < w; dx++) {
-      for (let dz = 0; dz < d; dz++) {
-        this.setBlock(startX + dx, baseY, startZ + dz, BlockType.WOOD_PLANKS);
-      }
-    }
-
-    // Walls (Stone Bricks and Cobblestone)
-    for (let dy = 1; dy <= h; dy++) {
-      for (let dx = 0; dx < w; dx++) {
-        for (let dz = 0; dz < d; dz++) {
-          const isEdge = (dx === 0 || dx === w - 1 || dz === 0 || dz === d - 1);
-          if (isEdge) {
-            // Doorway gap
-            if (dx === 2 && dz === 0 && dy <= 2) {
-              continue;
-            }
-            // Glass window on side
-            if ((dx === 0 || dx === w - 1) && dz === 3 && (dy === 2 || dy === 3)) {
-              this.setBlock(startX + dx, baseY + dy, startZ + dz, BlockType.GLASS);
-            } else {
-              const b = (dy === h || (dx === 0 && dz === 0) || (dx === w - 1 && dz === 0)) ? BlockType.STONE_BRICKS : BlockType.COBBLESTONE;
-              this.setBlock(startX + dx, baseY + dy, startZ + dz, b);
-            }
-          }
-        }
-      }
-    }
-
-    // Crafting table and bookshelf inside
-    this.setBlock(startX + 1, baseY + 1, startZ + 4, BlockType.CRAFTING_BENCH);
-    this.setBlock(startX + 1, baseY + 1, startZ + 3, BlockType.BOOKSHELF);
-
-    // Treasure chest with goodies!
-    const chestKey = `${startX + 4},${baseY + 1},${startZ + 4}`;
-    this.setBlock(startX + 4, baseY + 1, startZ + 4, BlockType.CHEST);
-    this.chestContents.set(chestKey, [
-      { id: 'iron_sword', name: 'Iron Broadsword', type: 'weapon', count: 1, maxStack: 1, damage: 7, tier: 3, description: 'Forged iron blade, sharp and sturdy' },
-      { id: 'iron_pickaxe', name: 'Iron Pickaxe', type: 'tool', count: 1, maxStack: 1, toolType: 'pickaxe', tier: 3, description: 'Efficient mining pickaxe' },
-      { id: 'ruby', name: 'Luminous Ruby', type: 'resource', count: 3, maxStack: 64, description: 'Radiates mystical warm energy' },
-      { id: 'gold_ore', name: 'Gold Ore', type: 'resource', count: 5, maxStack: 64, description: 'Shiny precious metal' },
-      { id: 'torch', name: 'Torch', type: 'block', blockType: BlockType.TORCH, count: 12, maxStack: 64, description: 'Illuminates isometric ruins' }
-    ]);
-
-    // Cozy Lantern mounted on entrance
-    this.setBlock(startX + 3, baseY + 3, startZ, BlockType.LANTERN);
-    this.lightSources.push({
-      x: startX + 3,
-      y: baseY + 3,
-      z: startZ,
-      color: 0xffaa33,
-      intensity: 2.0
-    });
-  }
-
-  // Rebuild Three.js InstancedMeshes
-  public rebuildMeshes() {
-    // Clear old meshes
-    const geosToDispose = new Set<THREE.BufferGeometry>();
+  /**
+   * Rebuilds InstancedMeshes for this chunk, applying dynamic occlusion cutaways
+   */
+  public rebuild(world: VoxelWorld, occludedCoords: Set<string> | null = null) {
+    // Clean old meshes
     this.instancedMeshes.forEach(mesh => {
       this.group.remove(mesh);
-      geosToDispose.add(mesh.geometry);
     });
-    geosToDispose.forEach(g => g.dispose());
     this.instancedMeshes.clear();
     this.instanceCoords.clear();
 
-    // Group coordinates by exposed block type
+    const worldStartX = this.cx * CHUNK_SIZE;
+    const worldStartZ = this.cz * CHUNK_SIZE;
+
+    // Group blocks by exposed block type
     const blocksByType: Map<BlockType, Array<[number, number, number]>> = new Map();
 
-    for (let y = 0; y < this.height; y++) {
-      for (let z = 0; z < this.depth; z++) {
-        for (let x = 0; x < this.width; x++) {
-          const b = this.getBlock(x, y, z);
+    for (let ly = 0; ly < CHUNK_HEIGHT; ly++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+          const b = this.getLocalBlock(lx, ly, lz);
           if (b === BlockType.AIR) continue;
 
-          // Only render exposed blocks (or transparent water)
-          if (b === BlockType.WATER || this.isExposed(x, y, z)) {
+          const wx = worldStartX + lx;
+          const wy = ly;
+          const wz = worldStartZ + lz;
+
+          // Check if this block should be cut away by dynamic occlusion
+          if (occludedCoords && occludedCoords.has(`${wx},${wy},${wz}`)) {
+            continue; // Cut away obstructive wall tile!
+          }
+
+          // Check if exposed to air or transparent neighbor
+          if (b === BlockType.WATER || world.isExposed(wx, wy, wz)) {
             if (!blocksByType.has(b)) {
               blocksByType.set(b, []);
             }
-            blocksByType.get(b)!.push([x, y, z]);
+            blocksByType.get(b)!.push([wx, wy, wz]);
           }
         }
       }
     }
 
-    const boxGeo = new THREE.BoxGeometry(1, 1, 1);
     const matrix = new THREE.Matrix4();
 
     blocksByType.forEach((coords, blockType) => {
@@ -820,17 +432,13 @@ export class VoxelWorld {
       const count = coords.length;
       if (count === 0) return;
 
-      const instancedMesh = new THREE.InstancedMesh(boxGeo, mat, count);
+      const instancedMesh = new THREE.InstancedMesh(this.boxGeo, mat, count);
       instancedMesh.castShadow = (blockType !== BlockType.WATER && blockType !== BlockType.GLASS);
       instancedMesh.receiveShadow = true;
-      instancedMesh.userData = { blockType };
-
-      // Crucial: Disable Three.js frustum culling on voxel InstancedMeshes.
-      // Three.js by default tests the 1x1 base boxGeo at (0,0,0); as soon as (0,0,0) is off-screen,
-      // the whole mesh vanished at certain angles. Setting frustumCulled = false completely fixes this!
+      instancedMesh.userData = { blockType, chunk: this };
       instancedMesh.frustumCulled = false;
 
-      // Assign renderOrder so translucent water and glass always render AFTER opaque terrain
+      // Render order for transparencies
       if (blockType === BlockType.WATER) {
         instancedMesh.renderOrder = 3;
       } else if (blockType === BlockType.GLASS) {
@@ -841,30 +449,25 @@ export class VoxelWorld {
         instancedMesh.renderOrder = 0;
       }
 
-      coords.forEach(([x, y, z], idx) => {
+      coords.forEach(([wx, wy, wz], idx) => {
         matrix.identity();
         if (blockType === BlockType.WATER) {
-          matrix.setPosition(x + 0.5, y + 0.46, z + 0.5);
+          matrix.setPosition(wx + 0.5, wy + 0.46, wz + 0.5);
           matrix.multiply(new THREE.Matrix4().makeScale(1.0, 0.92, 1.0));
         } else if (blockType === BlockType.TORCH) {
-          // Standing torch stick
-          matrix.setPosition(x + 0.5, y + 0.3, z + 0.5);
+          matrix.setPosition(wx + 0.5, wy + 0.3, wz + 0.5);
           matrix.multiply(new THREE.Matrix4().makeScale(0.18, 0.6, 0.18));
         } else if (blockType === BlockType.LANTERN) {
-          // Compact lantern block
-          matrix.setPosition(x + 0.5, y + 0.32, z + 0.5);
+          matrix.setPosition(wx + 0.5, wy + 0.32, wz + 0.5);
           matrix.multiply(new THREE.Matrix4().makeScale(0.38, 0.54, 0.38));
         } else if (blockType === BlockType.FLOWER_RED || blockType === BlockType.FLOWER_YELLOW) {
-          // Small wild flower
-          matrix.setPosition(x + 0.5, y + 0.25, z + 0.5);
+          matrix.setPosition(wx + 0.5, wy + 0.25, wz + 0.5);
           matrix.multiply(new THREE.Matrix4().makeScale(0.45, 0.5, 0.45));
         } else if (blockType === BlockType.CROPS_WHEAT || blockType === BlockType.CROPS_CARROT) {
-          // Crop bunch resting right on top of farmland
-          matrix.setPosition(x + 0.5, y + 0.28, z + 0.5);
+          matrix.setPosition(wx + 0.5, wy + 0.28, wz + 0.5);
           matrix.multiply(new THREE.Matrix4().makeScale(0.85, 0.56, 0.85));
         } else {
-          // Full solid voxel block!
-          matrix.setPosition(x + 0.5, y + 0.5, z + 0.5);
+          matrix.setPosition(wx + 0.5, wy + 0.5, wz + 0.5);
         }
         instancedMesh.setMatrixAt(idx, matrix);
       });
@@ -874,9 +477,609 @@ export class VoxelWorld {
       this.instanceCoords.set(blockType, coords);
       this.group.add(instancedMesh);
     });
+
+    this.isDirty = false;
   }
 
-  // Fast block break & update
+  public dispose() {
+    this.instancedMeshes.forEach(mesh => {
+      this.group.remove(mesh);
+    });
+    this.instancedMeshes.clear();
+    this.instanceCoords.clear();
+    this.boxGeo.dispose();
+  }
+}
+
+/**
+ * Infinite Procedural Voxel World with Dynamic Chunk Streaming
+ */
+export class VoxelWorld {
+  public seed: number;
+  public preset: 'meadow' | 'canyon' | 'autumn' | 'mountain' | 'village';
+  public height: number = CHUNK_HEIGHT;
+  public width: number = 100000; // Virtually infinite
+  public depth: number = 100000;
+  public group: THREE.Group;
+
+  public chunks: Map<string, VoxelChunk> = new Map();
+  // Persistent modifications (broken / placed blocks anywhere across infinite space)
+  public modifiedBlocks: Map<string, BlockType> = new Map();
+  public chestContents: Map<string, Item[]> = new Map();
+  public lightSources: Array<{ x: number; y: number; z: number; color: number; intensity: number; light?: THREE.PointLight }> = [];
+
+  // Dynamic Occlusion System
+  public occludedCoords: Set<string> = new Set();
+  public visionOpacity: number = 0.85; // Default 85%
+  public isPlayerInsideBuilding: boolean = false;
+
+  private lastPlayerChunkX: number = NaN;
+  private lastPlayerChunkZ: number = NaN;
+  private lastOcclusionCheck: number = 0;
+
+  constructor(seed: number = 42, preset: 'meadow' | 'canyon' | 'autumn' | 'mountain' | 'village' = 'meadow') {
+    this.seed = seed;
+    this.preset = preset;
+    this.group = new THREE.Group();
+    this.group.name = 'InfiniteVoxelWorld';
+  }
+
+  // Reset or regenerate realm
+  public generate(preset: 'meadow' | 'canyon' | 'autumn' | 'mountain' | 'village' = 'meadow', seed: number = 42) {
+    this.preset = preset;
+    this.seed = seed;
+    this.modifiedBlocks.clear();
+    this.chestContents.clear();
+    this.lightSources = [];
+    this.occludedCoords.clear();
+
+    // Dispose all active chunks
+    this.chunks.forEach(chunk => {
+      this.group.remove(chunk.group);
+      chunk.dispose();
+    });
+    this.chunks.clear();
+
+    this.lastPlayerChunkX = NaN;
+    this.lastPlayerChunkZ = NaN;
+
+    // Load initial 3x3 chunks around origin
+    this.update(0, 0);
+  }
+
+  public getChunkKey(cx: number, cz: number): string {
+    return `${cx},${cz}`;
+  }
+
+  public getBlockKey(x: number, y: number, z: number): string {
+    return `${x},${y},${z}`;
+  }
+
+  public getBlock(x: number, y: number, z: number): BlockType {
+    if (y < 0 || y >= CHUNK_HEIGHT) return BlockType.AIR;
+
+    // 1. Check user modification map first
+    const key = this.getBlockKey(x, y, z);
+    if (this.modifiedBlocks.has(key)) {
+      return this.modifiedBlocks.get(key)!;
+    }
+
+    // 2. Check loaded chunk
+    const cx = Math.floor(x / CHUNK_SIZE);
+    const cz = Math.floor(z / CHUNK_SIZE);
+    const chunkKey = this.getChunkKey(cx, cz);
+
+    let chunk = this.chunks.get(chunkKey);
+    if (!chunk) {
+      // Chunk not loaded yet: generate on-the-fly procedurally
+      chunk = this.generateChunk(cx, cz);
+      // NOTE: NEVER call chunk.rebuild() inside getBlock to prevent recursion!
+    }
+
+    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    return chunk.getLocalBlock(lx, y, lz);
+  }
+
+  public setBlock(x: number, y: number, z: number, type: BlockType): boolean {
+    if (y < 0 || y >= CHUNK_HEIGHT) return false;
+
+    const key = this.getBlockKey(x, y, z);
+    this.modifiedBlocks.set(key, type);
+
+    const cx = Math.floor(x / CHUNK_SIZE);
+    const cz = Math.floor(z / CHUNK_SIZE);
+    const chunkKey = this.getChunkKey(cx, cz);
+    let chunk = this.chunks.get(chunkKey);
+    if (!chunk) {
+      chunk = this.generateChunk(cx, cz);
+      this.group.add(chunk.group);
+    }
+
+    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+
+    chunk.setLocalBlock(lx, y, lz, type);
+    chunk.rebuild(this, this.occludedCoords);
+
+    // If block is on the edge of a chunk, update the neighbor chunk mesh too
+    if (lx === 0) this.chunks.get(this.getChunkKey(cx - 1, cz))?.rebuild(this, this.occludedCoords);
+    if (lx === CHUNK_SIZE - 1) this.chunks.get(this.getChunkKey(cx + 1, cz))?.rebuild(this, this.occludedCoords);
+    if (lz === 0) this.chunks.get(this.getChunkKey(cx, cz - 1))?.rebuild(this, this.occludedCoords);
+    if (lz === CHUNK_SIZE - 1) this.chunks.get(this.getChunkKey(cx, cz + 1))?.rebuild(this, this.occludedCoords);
+
+    return true;
+  }
+
+  public isSolid(x: number, y: number, z: number): boolean {
+    if (y < 0 || y >= CHUNK_HEIGHT) return false;
+    const key = this.getBlockKey(x, y, z);
+    if (this.modifiedBlocks.has(key)) {
+      const mb = this.modifiedBlocks.get(key)!;
+      return mb !== BlockType.AIR && (BLOCK_DEFS[mb]?.isSolid ?? false);
+    }
+
+    const cx = Math.floor(x / CHUNK_SIZE);
+    const cz = Math.floor(z / CHUNK_SIZE);
+    const chunk = this.chunks.get(this.getChunkKey(cx, cz));
+    if (!chunk) {
+      const b = this.getBlock(x, y, z);
+      return b !== BlockType.AIR && (BLOCK_DEFS[b]?.isSolid ?? false);
+    }
+
+    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const b = chunk.getLocalBlock(lx, y, lz);
+    return b !== BlockType.AIR && (BLOCK_DEFS[b]?.isSolid ?? false);
+  }
+
+  public isExposed(x: number, y: number, z: number): boolean {
+    const neighbors = [
+      [x + 1, y, z],
+      [x - 1, y, z],
+      [x, y + 1, z],
+      [x, y - 1, z],
+      [x, y, z + 1],
+      [x, y, z - 1]
+    ];
+    for (const [nx, ny, nz] of neighbors) {
+      if (ny < 0 || ny >= CHUNK_HEIGHT) return true;
+
+      // 1. Check modified blocks
+      const key = this.getBlockKey(nx, ny, nz);
+      if (this.modifiedBlocks.has(key)) {
+        const mb = this.modifiedBlocks.get(key)!;
+        if (mb === BlockType.AIR || BLOCK_DEFS[mb]?.isTransparent || !BLOCK_DEFS[mb]?.isSolid) {
+          return true;
+        }
+        continue;
+      }
+
+      // 2. Direct chunk check - CRITICAL: never call getBlock to avoid recursive chunk generation!
+      const ncx = Math.floor(nx / CHUNK_SIZE);
+      const ncz = Math.floor(nz / CHUNK_SIZE);
+      const chunk = this.chunks.get(this.getChunkKey(ncx, ncz));
+      if (!chunk) {
+        // Neighbor chunk isn't loaded; consider boundary exposed to air
+        return true;
+      }
+
+      const lx = ((nx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+      const lz = ((nz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+      const nb = chunk.getLocalBlock(lx, ny, lz);
+      if (nb === BlockType.AIR || BLOCK_DEFS[nb]?.isTransparent || !BLOCK_DEFS[nb]?.isSolid) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Deterministic Procedural Terrain Generator for Any Infinite Chunk
+   */
+  public generateChunk(cx: number, cz: number): VoxelChunk {
+    const chunkKey = this.getChunkKey(cx, cz);
+    const chunk = new VoxelChunk(cx, cz);
+    this.chunks.set(chunkKey, chunk);
+    const startX = cx * CHUNK_SIZE;
+    const startZ = cz * CHUNK_SIZE;
+
+    const isMountainPreset = this.preset === 'mountain';
+    const isCanyonPreset = this.preset === 'canyon';
+    const waterLevel = 6;
+    const baseHeight = isMountainPreset ? 11 : isCanyonPreset ? 6 : 8;
+
+    // Fill terrain heights
+    const heightMap: number[][] = [];
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      heightMap[lx] = [];
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        const wx = startX + lx;
+        const wz = startZ + lz;
+
+        // Multi-octave continuous coherent noise
+        const n1 = fbm2D(wx * 0.02, wz * 0.02, this.seed, 3) * (isMountainPreset ? 12.0 : 7.0);
+        const n2 = Math.sin(wx * 0.08) * Math.cos(wz * 0.08) * 2.0;
+
+        // River network carving
+        const riverVal = Math.abs(Math.sin(wx * 0.018 + Math.cos(wz * 0.015) * 1.2) - Math.cos(wz * 0.018));
+        let riverCarve = 0;
+        if (riverVal < 0.12) {
+          riverCarve = (1 - riverVal / 0.12) * (isCanyonPreset ? 7.5 : 5.0);
+        }
+
+        let h = Math.floor(baseHeight + n1 + n2 - riverCarve);
+        h = Math.max(2, Math.min(CHUNK_HEIGHT - 6, h));
+        heightMap[lx][lz] = h;
+
+        // Place blocks vertically
+        for (let y = 0; y <= h; y++) {
+          let blockType: BlockType;
+          if (y === 0) {
+            blockType = BlockType.STONE; // Bedrock
+          } else if (y === h) {
+            // Surface layer depends on elevation
+            if (h <= waterLevel + 1) {
+              blockType = BlockType.SAND;
+            } else if (h >= 17) {
+              blockType = BlockType.SNOW;
+            } else if (h >= 14) {
+              blockType = BlockType.SNOW_GRASS;
+            } else {
+              blockType = BlockType.GRASS;
+            }
+          } else if (y >= h - 2) {
+            blockType = h <= waterLevel + 1 ? BlockType.SAND : BlockType.DIRT;
+          } else {
+            // Subterranean stone with ore veins
+            const oreVal = hash2D(wx * 7.1 + y * 13.3, wz * 11.2, this.seed);
+            if (oreVal > 0.95 && y < 14) {
+              blockType = BlockType.RUBY_ORE;
+            } else if (oreVal > 0.90 && y < 18) {
+              blockType = BlockType.GOLD_ORE;
+            } else if (oreVal > 0.79) {
+              blockType = BlockType.IRON_ORE;
+            } else if (oreVal > 0.66) {
+              blockType = BlockType.COAL_ORE;
+            } else {
+              blockType = BlockType.STONE;
+            }
+          }
+
+          // Underground cave pockets
+          const caveVal = Math.sin(wx * 0.4) * Math.cos(y * 0.6) * Math.sin(wz * 0.4);
+          if (y > 2 && y < h - 2 && caveVal > 0.75) {
+            blockType = BlockType.AIR;
+          }
+
+          chunk.setLocalBlock(lx, y, lz, blockType);
+        }
+
+        // River water filling
+        if (h < waterLevel) {
+          for (let y = h + 1; y <= waterLevel; y++) {
+            chunk.setLocalBlock(lx, y, lz, BlockType.WATER);
+          }
+        }
+      }
+    }
+
+    // Deterministic Trees & Vegetation in this chunk
+    const treeHash = hash2D(cx * 33.7, cz * 47.9, this.seed);
+    const numTrees = Math.floor(treeHash * 3) + 1; // 1 to 3 trees per chunk
+
+    for (let t = 0; t < numTrees; t++) {
+      const tx = 3 + Math.floor(hash2D(t * 19.3, cx, cz) * 10);
+      const tz = 3 + Math.floor(hash2D(t * 29.7, cz, cx) * 10);
+      const ty = heightMap[tx][tz];
+
+      if (ty >= waterLevel + 2 && ty < CHUNK_HEIGHT - 8) {
+        const ground = chunk.getLocalBlock(tx, ty, tz);
+        if (ground === BlockType.GRASS || ground === BlockType.SNOW_GRASS || ground === BlockType.SNOW) {
+          const isSnowTree = ground === BlockType.SNOW || ground === BlockType.SNOW_GRASS;
+          this.generateTreeInChunk(chunk, tx, ty + 1, tz, isSnowTree);
+        }
+      }
+    }
+
+    // Deterministic Ruin Cottage / Village Outpost
+    // Spawns roughly every 8-10 chunks deterministically!
+    const chunkScore = Math.floor(hash2D(cx * 77.1, cz * 89.3, this.seed) * 100);
+    const isSpecialCottageChunk = (cx === 2 && cz === 2) || (chunkScore === 42 && Math.abs(cx) + Math.abs(cz) > 1);
+
+    if (isSpecialCottageChunk) {
+      this.generateCottageInChunk(chunk, startX, startZ, heightMap);
+    }
+
+    // Apply any previously stored user modifications in this chunk
+    for (let ly = 0; ly < CHUNK_HEIGHT; ly++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+          const key = this.getBlockKey(startX + lx, ly, startZ + lz);
+          if (this.modifiedBlocks.has(key)) {
+            chunk.setLocalBlock(lx, ly, lz, this.modifiedBlocks.get(key)!);
+          }
+        }
+      }
+    }
+
+    return chunk;
+  }
+
+  private generateTreeInChunk(chunk: VoxelChunk, tx: number, ty: number, tz: number, isSnow: boolean) {
+    const trunkHeight = isSnow ? 5 : 4;
+    for (let dy = 0; dy < trunkHeight; dy++) {
+      chunk.setLocalBlock(tx, ty + dy, tz, BlockType.WOOD_LOG);
+    }
+
+    const topY = ty + trunkHeight;
+    for (let lx = -2; lx <= 2; lx++) {
+      for (let lz = -2; lz <= 2; lz++) {
+        for (let ly = -1; ly <= 1; ly++) {
+          if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && ly === 1) continue;
+          const px = tx + lx;
+          const py = topY + ly;
+          const pz = tz + lz;
+          if (chunk.getLocalBlock(px, py, pz) === BlockType.AIR) {
+            chunk.setLocalBlock(px, py, pz, BlockType.LEAVES);
+            if (isSnow && ly === 1) {
+              chunk.setLocalBlock(px, py + 1, pz, BlockType.SNOW);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private generateCottageInChunk(chunk: VoxelChunk, startX: number, startZ: number, heightMap: number[][]) {
+    const cx = 5;
+    const cz = 5;
+    const baseY = Math.max(7, Math.min(CHUNK_HEIGHT - 8, heightMap[cx][cz] + 1));
+    const w = 6;
+    const d = 6;
+    const h = 4;
+
+    // Wooden floor
+    for (let dx = 0; dx < w; dx++) {
+      for (let dz = 0; dz < d; dz++) {
+        chunk.setLocalBlock(cx + dx, baseY, cz + dz, BlockType.WOOD_PLANKS);
+        // Foundation downward
+        for (let fy = baseY - 1; fy >= 1; fy--) {
+          const b = chunk.getLocalBlock(cx + dx, fy, cz + dz);
+          if (b === BlockType.AIR || b === BlockType.WATER) {
+            chunk.setLocalBlock(cx + dx, fy, cz + dz, BlockType.COBBLESTONE);
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    // Walls
+    for (let dy = 1; dy <= h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        for (let dz = 0; dz < d; dz++) {
+          const isEdge = dx === 0 || dx === w - 1 || dz === 0 || dz === d - 1;
+          if (isEdge) {
+            if (dx === 2 && dz === 0 && dy <= 2) {
+              chunk.setLocalBlock(cx + dx, baseY + dy, cz + dz, BlockType.AIR); // Doorway
+            } else if ((dx === 0 || dx === w - 1) && dz === 3 && (dy === 2 || dy === 3)) {
+              chunk.setLocalBlock(cx + dx, baseY + dy, cz + dz, BlockType.GLASS);
+            } else {
+              const b = dy === h || (dx === 0 && dz === 0) || (dx === w - 1 && dz === 0)
+                ? BlockType.STONE_BRICKS
+                : BlockType.COBBLESTONE;
+              chunk.setLocalBlock(cx + dx, baseY + dy, cz + dz, b);
+            }
+          }
+        }
+      }
+    }
+
+    // Interior furniture
+    chunk.setLocalBlock(cx + 1, baseY + 1, cz + 4, BlockType.CRAFTING_BENCH);
+    chunk.setLocalBlock(cx + 1, baseY + 1, cz + 3, BlockType.BOOKSHELF);
+
+    // Treasure chest
+    const chestWx = startX + cx + 4;
+    const chestWy = baseY + 1;
+    const chestWz = startZ + cz + 4;
+    chunk.setLocalBlock(cx + 4, baseY + 1, cz + 4, BlockType.CHEST);
+
+    const chestKey = `${chestWx},${chestWy},${chestWz}`;
+    if (!this.chestContents.has(chestKey)) {
+      this.chestContents.set(chestKey, [
+        { id: 'iron_sword', name: 'Iron Broadsword', type: 'weapon', count: 1, maxStack: 1, damage: 7, tier: 3, description: 'Sharp forged iron blade' },
+        { id: 'iron_pickaxe', name: 'Iron Pickaxe', type: 'tool', count: 1, maxStack: 1, toolType: 'pickaxe', tier: 3, description: 'Sturdy mining pickaxe' },
+        { id: 'ruby', name: 'Luminous Ruby', type: 'resource', count: 4, maxStack: 64, description: 'Radiant magical gemstone' },
+        { id: 'gold_ore', name: 'Gold Ore', type: 'resource', count: 6, maxStack: 64, description: 'Precious gold vein ore' },
+        { id: 'torch', name: 'Torch', type: 'block', blockType: BlockType.TORCH, count: 16, maxStack: 64, description: 'Provides warm illumination' }
+      ]);
+    }
+
+    // Lantern on entrance
+    chunk.setLocalBlock(cx + 3, baseY + 3, cz, BlockType.LANTERN);
+    this.lightSources.push({
+      x: startX + cx + 3,
+      y: baseY + 3,
+      z: startZ + cz,
+      color: 0xffaa33,
+      intensity: 2.2
+    });
+  }
+
+  /**
+   * Updates loaded chunk radius around player's infinite position
+   * And performs dynamic occlusion detection
+   */
+  public update(playerX: number, playerZ: number, playerY: number = 8, cameraAngle: number = Math.PI / 4, visionSetting: number = 0.85) {
+    this.visionOpacity = visionSetting;
+    const currentChunkX = Math.floor(playerX / CHUNK_SIZE);
+    const currentChunkZ = Math.floor(playerZ / CHUNK_SIZE);
+
+    const R = 3; // 7x7 chunks = 112x112 block viewing area!
+
+    // Check if player moved to new chunk
+    const hasPlayerShiftedChunk = currentChunkX !== this.lastPlayerChunkX || currentChunkZ !== this.lastPlayerChunkZ;
+
+    if (hasPlayerShiftedChunk) {
+      this.lastPlayerChunkX = currentChunkX;
+      this.lastPlayerChunkZ = currentChunkZ;
+
+      // Ensure all chunks in radius R are loaded
+      const newChunks: VoxelChunk[] = [];
+      for (let dx = -R; dx <= R; dx++) {
+        for (let dz = -R; dz <= R; dz++) {
+          const cx = currentChunkX + dx;
+          const cz = currentChunkZ + dz;
+          const key = this.getChunkKey(cx, cz);
+
+          if (!this.chunks.has(key)) {
+            const chunk = this.generateChunk(cx, cz);
+            this.group.add(chunk.group);
+            newChunks.push(chunk);
+          }
+        }
+      }
+
+      // Rebuild meshes for all newly loaded chunks
+      for (const chunk of newChunks) {
+        chunk.rebuild(this, this.occludedCoords);
+      }
+
+      // Unload distant chunks (beyond R + 2) to preserve memory and peak 60fps performance
+      const unloadDist = R + 2;
+      const chunksToRemove: string[] = [];
+      this.chunks.forEach((chunk, key) => {
+        if (Math.abs(chunk.cx - currentChunkX) > unloadDist || Math.abs(chunk.cz - currentChunkZ) > unloadDist) {
+          chunksToRemove.push(key);
+        }
+      });
+
+      chunksToRemove.forEach(k => {
+        const c = this.chunks.get(k);
+        if (c) {
+          this.group.remove(c.group);
+          c.dispose();
+          this.chunks.delete(k);
+        }
+      });
+    }
+
+    // Dynamic Occlusion & Interior Cutaway Calculation
+    const now = performance.now();
+    if (now - this.lastOcclusionCheck > 120) {
+      this.lastOcclusionCheck = now;
+      this.computeDynamicOcclusion(playerX, playerY, playerZ, cameraAngle);
+    }
+  }
+
+  /**
+   * Computes which wall blocks occlude the player's view from the isometric camera,
+   * keeping character, floors, interior chests, benches, and NPCs visible.
+   */
+  private computeDynamicOcclusion(playerX: number, playerY: number, playerZ: number, cameraAngle: number) {
+    const px = Math.floor(playerX);
+    const py = Math.floor(playerY);
+    const pz = Math.floor(playerZ);
+
+    // 1. Detect if player is inside a building / covered structure
+    // Check if there is a ceiling/roof above the player (2 to 6 blocks above)
+    let hasCeiling = false;
+    for (let dy = 2; dy <= 5; dy++) {
+      if (this.isSolid(px, py + dy, pz)) {
+        hasCeiling = true;
+        break;
+      }
+    }
+
+    // Check surrounding walls
+    let surroundingWallCount = 0;
+    const checks = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dz] of checks) {
+      for (let dist = 1; dist <= 3; dist++) {
+        if (this.isSolid(px + dx * dist, py + 1, pz + dz * dist)) {
+          surroundingWallCount++;
+          break;
+        }
+      }
+    }
+
+    this.isPlayerInsideBuilding = hasCeiling || surroundingWallCount >= 3;
+
+    // Vector pointing from player towards the isometric camera
+    const camDirX = Math.sin(cameraAngle);
+    const camDirZ = Math.cos(cameraAngle);
+
+    const newOccluded = new Set<string>();
+
+    // Determine search radius based on vision setting:
+    // 1.0 (100%): maximum visibility, aggressive cutaway
+    // 0.85 (85%): normal visibility
+    // 0.70 (70%): reduced cutaway
+    // 0.50 (50%): minimal cutaway
+    const searchRadius = this.visionOpacity >= 0.95 ? 6 : this.visionOpacity >= 0.80 ? 5 : 4;
+
+    for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+      for (let dz = -searchRadius; dz <= searchRadius; dz++) {
+        const dot = dx * camDirX + dz * camDirZ;
+
+        // Block must be "in front" of the player towards camera
+        if (dot > 0.4) {
+          const bx = px + dx;
+          const bz = pz + dz;
+
+          // Check wall blocks from player foot level upwards
+          for (let by = py; by <= py + 6; by++) {
+            const b = this.getBlock(bx, by, bz);
+            if (b === BlockType.AIR || b === BlockType.WATER) continue;
+
+            // Never occlude floors beneath or at foot level (wood planks, cobblestone on floor)
+            if (by < py) continue;
+
+            // Never occlude critical interactable objects (chest, crafting bench, lantern, torch)
+            if (b === BlockType.CHEST || b === BlockType.CRAFTING_BENCH || b === BlockType.TORCH || b === BlockType.LANTERN) {
+              continue;
+            }
+
+            // If inside a building: cut away blocking roof and camera-side walls
+            if (this.isPlayerInsideBuilding) {
+              if (by >= py) {
+                newOccluded.add(`${bx},${by},${bz}`);
+              }
+            } else {
+              // Outside: cut away walls that block direct sightline
+              const distSq = dx * dx + dz * dz;
+              if (distSq <= 18 && by >= py + 1) {
+                newOccluded.add(`${bx},${by},${bz}`);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Check if occlusion set changed
+    let changed = newOccluded.size !== this.occludedCoords.size;
+    if (!changed) {
+      for (const k of newOccluded) {
+        if (!this.occludedCoords.has(k)) {
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    if (changed) {
+      this.occludedCoords = newOccluded;
+      // Rebuild meshes of loaded chunks with the new occlusion cutaway
+      this.chunks.forEach(chunk => {
+        chunk.rebuild(this, this.occludedCoords);
+      });
+    }
+  }
+
+  // Fast block break
   public breakBlock(x: number, y: number, z: number): BlockType {
     const oldType = this.getBlock(x, y, z);
     if (oldType === BlockType.AIR) return BlockType.AIR;
@@ -885,15 +1088,12 @@ export class VoxelWorld {
     if (oldType === BlockType.TORCH || oldType === BlockType.LANTERN) {
       this.lightSources = this.lightSources.filter(ls => ls.x !== x || ls.y !== y || ls.z !== z);
     }
-    this.rebuildMeshes();
     return oldType;
   }
 
-  // Fast block place & update
+  // Fast block place
   public placeBlock(x: number, y: number, z: number, type: BlockType): boolean {
-    if (x < 0 || x >= this.width || y < 0 || y >= this.height || z < 0 || z >= this.depth) {
-      return false;
-    }
+    if (y < 0 || y >= CHUNK_HEIGHT) return false;
     const current = this.getBlock(x, y, z);
     if (current !== BlockType.AIR && current !== BlockType.WATER && current !== BlockType.FLOWER_RED && current !== BlockType.FLOWER_YELLOW) {
       return false;
@@ -901,7 +1101,6 @@ export class VoxelWorld {
 
     this.setBlock(x, y, z, type);
 
-    // If placed a torch or lantern, record light source
     if (type === BlockType.TORCH || type === BlockType.LANTERN) {
       this.lightSources.push({
         x, y, z,
@@ -910,19 +1109,21 @@ export class VoxelWorld {
       });
     }
 
-    this.rebuildMeshes();
     return true;
   }
 
-  // Raycasting helper against voxel meshes
+  // Raycasting against all loaded chunks
   public raycast(raycaster: THREE.Raycaster): RaycastHit | null {
     const meshes: THREE.InstancedMesh[] = [];
-    this.instancedMeshes.forEach((mesh, blockType) => {
-      // Don't target water with crosshair
-      if (blockType !== BlockType.WATER) {
-        meshes.push(mesh);
-      }
+    this.chunks.forEach(chunk => {
+      chunk.instancedMeshes.forEach((mesh, blockType) => {
+        if (blockType !== BlockType.WATER) {
+          meshes.push(mesh);
+        }
+      });
     });
+
+    if (meshes.length === 0) return null;
 
     const intersects = raycaster.intersectObjects(meshes, false);
     if (intersects.length === 0) return null;
@@ -933,19 +1134,19 @@ export class VoxelWorld {
     if (instanceId === undefined) return null;
 
     const blockType = mesh.userData.blockType as BlockType;
-    const coordsList = this.instanceCoords.get(blockType);
+    const chunk = mesh.userData.chunk as VoxelChunk;
+    if (!chunk) return null;
+
+    const coordsList = chunk.instanceCoords.get(blockType);
     if (!coordsList || instanceId >= coordsList.length) return null;
 
     const [bx, by, bz] = coordsList[instanceId];
 
-    // Compute normal from intersection or calculate based on local hit point
-    let nx = 0, ny = 0, nz = 0;
+    let nx = 0, ny = 1, nz = 0;
     if (hit.normal) {
       nx = Math.round(hit.normal.x);
       ny = Math.round(hit.normal.y);
       nz = Math.round(hit.normal.z);
-    } else {
-      ny = 1;
     }
 
     return {
@@ -960,102 +1161,55 @@ export class VoxelWorld {
     };
   }
 
-  // Export world as JSON
-  public exportJSON(): string {
-    return JSON.stringify({
-      width: this.width,
-      depth: this.depth,
-      height: this.height,
-      blocks: Array.from(this.blocks)
+  // Force rebuild all loaded chunks
+  public rebuildMeshes() {
+    this.chunks.forEach(chunk => {
+      chunk.rebuild(this, this.occludedCoords);
     });
-  }
-
-  // Import world from JSON
-  public importJSON(jsonStr: string): boolean {
-    try {
-      const data = JSON.parse(jsonStr);
-      if (data.width && data.depth && data.height && data.blocks) {
-        this.width = data.width;
-        this.depth = data.depth;
-        this.height = data.height;
-        this.blocks = new Uint8Array(data.blocks);
-        this.rebuildMeshes();
-        return true;
-      }
-    } catch {
-      return false;
-    }
-    return false;
   }
 }
 
 /**
- * Finds a safe, open surface spawn point for the player:
- * - High elevation (y >= 7), open grassy plateau, NOT in river water or caves
- * - 2-3 blocks of clear air above feet
- * - Clears a small 3x3 vantage point so the camera and character are in full, unobstructed view!
+ * Finds a safe, open surface spawn point around coordinates (startX, startZ)
  */
-export function findSafeSurfaceSpawn(world: VoxelWorld): { x: number; y: number; z: number } {
-  const centerX = Math.floor(world.width / 2);
-  const centerZ = Math.floor(world.depth / 2);
-
-  // Search in expanding concentric square rings from center for a dry, open grass hill
-  for (let r = 2; r < Math.min(world.width, world.depth) / 2 - 4; r++) {
+export function findSafeSurfaceSpawn(world: VoxelWorld, startX: number = 0, startZ: number = 0): { x: number; y: number; z: number } {
+  // Search in expanding concentric rings around start position for a dry, open grass hill
+  for (let r = 0; r < 24; r++) {
     for (let dx = -r; dx <= r; dx++) {
       for (let dz = -r; dz <= r; dz++) {
         if (Math.abs(dx) !== r && Math.abs(dz) !== r) continue;
-        const x = centerX + dx;
-        const z = centerZ + dz;
+        const x = startX + dx;
+        const z = startZ + dz;
 
-        for (let y = world.height - 4; y >= 7; y--) {
+        for (let y = CHUNK_HEIGHT - 4; y >= 6; y--) {
           const ground = world.getBlock(x, y, z);
           const above1 = world.getBlock(x, y + 1, z);
           const above2 = world.getBlock(x, y + 2, z);
           const above3 = world.getBlock(x, y + 3, z);
 
-          // Must be dry solid grass or stone (NOT water, NOT leaves)
           if (
-            (ground === BlockType.GRASS || ground === BlockType.DIRT || ground === BlockType.STONE_BRICKS) &&
+            (ground === BlockType.GRASS || ground === BlockType.SNOW_GRASS || ground === BlockType.STONE_BRICKS || ground === BlockType.DIRT) &&
             above1 === BlockType.AIR &&
             above2 === BlockType.AIR &&
             above3 === BlockType.AIR
           ) {
-            const adjX = world.isSolid(x + 1, y, z);
-            const adjZ = world.isSolid(x, y, z + 1);
-            if (adjX && adjZ) {
-              // Ensure 3x3 clearing around spawn so trees/cliff never block view
-              let needsRebuild = false;
-              for (let cx = -1; cx <= 1; cx++) {
-                for (let cz = -1; cz <= 1; cz++) {
-                  for (let cy = 1; cy <= 3; cy++) {
-                    if (world.getBlock(x + cx, y + cy, z + cz) !== BlockType.AIR) {
-                      world.setBlock(x + cx, y + cy, z + cz, BlockType.AIR);
-                      needsRebuild = true;
-                    }
-                  }
-                }
-              }
-              if (needsRebuild) {
-                world.rebuildMeshes();
-              }
-              return { x: x + 0.5, y: y + 1.0, z: z + 0.5 };
-            }
+            // Found a great spot!
+            return { x: x + 0.5, y: y + 1.0, z: z + 0.5 };
           }
         }
       }
     }
   }
 
-  // Fallback platform if terrain was unusually rugged
+  // Fallback platform if terrain was very rugged
   const fallbackY = 8;
   for (let cx = -2; cx <= 2; cx++) {
     for (let cz = -2; cz <= 2; cz++) {
-      world.setBlock(centerX + cx, fallbackY, centerZ + cz, BlockType.GRASS);
+      world.setBlock(startX + cx, fallbackY, startZ + cz, BlockType.GRASS);
       for (let cy = 1; cy <= 4; cy++) {
-        world.setBlock(centerX + cx, fallbackY + cy, centerZ + cz, BlockType.AIR);
+        world.setBlock(startX + cx, fallbackY + cy, startZ + cz, BlockType.AIR);
       }
     }
   }
-  world.rebuildMeshes();
-  return { x: centerX + 0.5, y: fallbackY + 1.0, z: centerZ + 0.5 };
+  return { x: startX + 0.5, y: fallbackY + 1.0, z: startZ + 0.5 };
 }

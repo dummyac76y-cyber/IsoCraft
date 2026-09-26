@@ -4,7 +4,7 @@ import { VoxelWorld, BLOCK_DEFS, findSafeSurfaceSpawn } from '../engine/world';
 import { CharacterModel } from '../engine/character';
 import { MobManager } from '../engine/mobs';
 import { sound } from '../engine/sound';
-import { BlockType, CharacterCustomization, Item, RaycastHit, GameMode, PlayerStats, FloatingText, MobEntity } from '../types';
+import { BlockType, CharacterCustomization, Item, RaycastHit, GameMode, PlayerStats, MobEntity } from '../types';
 import { generateCrackTexture } from '../engine/textures';
 import { calculatePath, findAdjacentWalkableSpot, findGroundHeight, PathPoint } from '../engine/pathfinding';
 
@@ -16,8 +16,8 @@ interface GameCanvasProps {
   playerStats: PlayerStats;
   setPlayerStats: React.Dispatch<React.SetStateAction<PlayerStats>>;
   gameMode: GameMode;
-  dayTime: number; // 0 to 1 (0.5 = noon, 0 = midnight)
-  cameraAngle: number; // in radians
+  dayTime: number;
+  cameraAngle: number;
   zoomLevel: number;
   isDead: boolean;
   onPlayerDied?: (cause: string) => void;
@@ -31,7 +31,10 @@ interface GameCanvasProps {
   onOrbitCamera?: (deltaAngle: number) => void;
   onResetCamera?: () => void;
   autoRotateCamera?: boolean;
+  autoRotateSpeed?: 'slow' | 'normal' | 'fast';
+  blockOpacity?: number;
   onZoom?: (delta: number) => void;
+  touchShiftMode?: boolean;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
@@ -57,7 +60,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onOrbitCamera,
   onResetCamera,
   autoRotateCamera = false,
-  onZoom
+  autoRotateSpeed = 'normal',
+  blockOpacity = 0.85,
+  onZoom,
+  touchShiftMode = false
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -97,6 +103,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const autoRotateCameraRef = useRef<boolean>(autoRotateCamera);
   autoRotateCameraRef.current = autoRotateCamera;
 
+  const autoRotateSpeedRef = useRef<'slow' | 'normal' | 'fast'>(autoRotateSpeed);
+  autoRotateSpeedRef.current = autoRotateSpeed;
+
+  const blockOpacityRef = useRef<number>(blockOpacity);
+  blockOpacityRef.current = blockOpacity;
+
+  const touchShiftModeRef = useRef<boolean>(touchShiftMode);
+  touchShiftModeRef.current = touchShiftMode;
+
   useEffect(() => {
     if (!containerRef.current) return;
     const container = containerRef.current;
@@ -104,7 +119,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // --- Three.js Scene Setup ---
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
+    scene.background = new THREE.Color(0x6eb5f0);
 
     // --- Isometric Orthographic Camera ---
     const aspect = container.clientWidth / container.clientHeight;
@@ -115,7 +130,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       frustumSize / 2,
       -frustumSize / 2,
       0.1,
-      200
+      300
     );
 
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
@@ -125,10 +140,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
+    renderer.domElement.style.imageRendering = 'pixelated';
     container.appendChild(renderer.domElement);
 
-    // --- Voxel World ---
-    const world = new VoxelWorld(48, 48, 24);
+    // --- Infinite Procedural Voxel World ---
+    const world = new VoxelWorld(1234, 'meadow');
     world.generate('meadow', 1234);
     worldRef.current = world;
     scene.add(world.group);
@@ -136,7 +152,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     // --- Semi-Blocky Player Character ---
     const character = new CharacterModel(customization);
     characterRef.current = character;
-    const safeSpawn = findSafeSurfaceSpawn(world);
+    const safeSpawn = findSafeSurfaceSpawn(world, 0, 0);
 
     const playerPos = new THREE.Vector3(safeSpawn.x, safeSpawn.y, safeSpawn.z);
     const playerVel = new THREE.Vector3(0, 0, 0);
@@ -147,7 +163,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const mobManager = new MobManager();
     scene.add(mobManager.group);
 
-    // Spawn starting friendly and hostile mobs at safe distances across the world
+    // Spawn starting mobs around spawn
     mobManager.spawnMob('villager', safeSpawn.x + 3, safeSpawn.y, safeSpawn.z - 3);
     mobManager.spawnMob('sheep', safeSpawn.x + 4, safeSpawn.y, safeSpawn.z + 3);
     mobManager.spawnMob('sheep', safeSpawn.x - 5, safeSpawn.y, safeSpawn.z - 4);
@@ -156,23 +172,44 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     mobManager.spawnMob('skeleton', safeSpawn.x + 14, safeSpawn.y, safeSpawn.z + 14);
     mobManager.spawnMob('goblin', safeSpawn.x - 12, safeSpawn.y, safeSpawn.z - 8);
 
+    // Dynamic Mob Spawner across Infinite Terrain
+    let lastMobSpawnTime = 0;
+    const updateInfiniteMobSpawning = (time: number) => {
+      if (time - lastMobSpawnTime > 7000 && mobManager.mobs.length < 18) {
+        lastMobSpawnTime = time;
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 16 + Math.random() * 20;
+        const mx = Math.floor(playerPos.x + Math.sin(angle) * dist);
+        const mz = Math.floor(playerPos.z + Math.cos(angle) * dist);
+        const groundY = findGroundHeight(world, mx, mz, playerPos.y);
+
+        if (groundY !== null && groundY > 6) {
+          const isNight = dayTimeRef.current < 0.25 || dayTimeRef.current > 0.75;
+          if (isNight) {
+            const hostile = Math.random() < 0.5 ? 'skeleton' : 'goblin';
+            mobManager.spawnMob(hostile, mx + 0.5, groundY, mz + 0.5);
+          } else {
+            const peaceful = Math.random() < 0.6 ? 'sheep' : 'slime';
+            mobManager.spawnMob(peaceful, mx + 0.5, groundY, mz + 0.5);
+          }
+        }
+      }
+    };
+
     // --- Lighting Setup ---
-    // Ambient fill light
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.48);
     scene.add(ambientLight);
 
-    // Hemisphere light for dual-color sky and ground radiance
     const hemiLight = new THREE.HemisphereLight(0x90caff, 0x526645, 0.42);
     scene.add(hemiLight);
 
-    // Sun directional light
     const sunLight = new THREE.DirectionalLight(0xfffaec, 1.25);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
     sunLight.shadow.camera.near = 1;
-    sunLight.shadow.camera.far = 140;
-    const d = 32;
+    sunLight.shadow.camera.far = 160;
+    const d = 36;
     sunLight.shadow.camera.left = -d;
     sunLight.shadow.camera.right = d;
     sunLight.shadow.camera.top = d;
@@ -182,13 +219,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     scene.add(sunLight);
     scene.add(sunLight.target);
 
-    // Moon directional light for luminous night
     const moonLight = new THREE.DirectionalLight(0xa2c4ff, 0.0);
     moonLight.castShadow = true;
     moonLight.shadow.mapSize.width = 1024;
     moonLight.shadow.mapSize.height = 1024;
     moonLight.shadow.camera.near = 1;
-    moonLight.shadow.camera.far = 140;
+    moonLight.shadow.camera.far = 160;
     moonLight.shadow.camera.left = -d;
     moonLight.shadow.camera.right = d;
     moonLight.shadow.camera.top = d;
@@ -198,7 +234,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     scene.add(moonLight);
     scene.add(moonLight.target);
 
-    // Dynamic torch lights pool (up to 12 simultaneous point lights)
+    // Point lights for torches
     const torchLights: THREE.PointLight[] = [];
     for (let i = 0; i < 12; i++) {
       const pl = new THREE.PointLight(0xff9933, 0, 16, 1.2);
@@ -206,7 +242,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       torchLights.push(pl);
     }
 
-    // Player torch/lantern glow
     const playerLight = new THREE.PointLight(0xffaa44, 0.4, 10, 1.4);
     scene.add(playerLight);
 
@@ -218,7 +253,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     highlightBox.visible = false;
     scene.add(highlightBox);
 
-    // Block face placement cursor
     const faceGeo = new THREE.PlaneGeometry(1.0, 1.0);
     const faceMat = new THREE.MeshBasicMaterial({
       color: 0x44ff88,
@@ -241,240 +275,115 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     crackMesh.visible = false;
     scene.add(crackMesh);
 
-    // --- 3D Click-to-Move Destination Marker & Path Preview ---
-    interface PendingAction {
-      type: 'ground' | 'npc' | 'enemy' | 'chest' | 'bench' | 'tree' | 'resource';
-      mobId?: string;
-      coords?: string;
-      blockX?: number;
-      blockY?: number;
-      blockZ?: number;
-    }
+    // --- Shift+Click Destination Marker & Path Line ---
+    const markerGroup = new THREE.Group();
+    markerGroup.visible = false;
 
-    const destinationMarker = new THREE.Group();
-    destinationMarker.visible = false;
-    scene.add(destinationMarker);
-
-    // 1. Glowing outer pulse ring
-    const markerRingGeo = new THREE.RingGeometry(0.36, 0.50, 32);
-    markerRingGeo.rotateX(-Math.PI / 2);
-    const markerRingMat = new THREE.MeshBasicMaterial({
+    // Glowing ground ring
+    const ringGeo = new THREE.RingGeometry(0.3, 0.48, 16);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
       color: 0x38e1ff,
       transparent: true,
       opacity: 0.85,
-      side: THREE.DoubleSide,
-      depthWrite: false
+      side: THREE.DoubleSide
     });
-    const markerRing = new THREE.Mesh(markerRingGeo, markerRingMat);
-    markerRing.position.y = 0.03;
-    destinationMarker.add(markerRing);
+    const markerRing = new THREE.Mesh(ringGeo, ringMat);
+    markerRing.position.y = 0.05;
+    markerGroup.add(markerRing);
 
-    // 2. Inner pulsating core dot
-    const markerDotGeo = new THREE.CircleGeometry(0.16, 24);
-    markerDotGeo.rotateX(-Math.PI / 2);
-    const markerDotMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.9,
-      side: THREE.DoubleSide,
-      depthWrite: false
-    });
-    const markerDot = new THREE.Mesh(markerDotGeo, markerDotMat);
-    markerDot.position.y = 0.04;
-    destinationMarker.add(markerDot);
-
-    // 3. Floating 3D Pointer Chevron / Diamond
-    const markerPillarGeo = new THREE.ConeGeometry(0.16, 0.42, 4);
-    markerPillarGeo.rotateX(Math.PI); // Point down towards ground
-    const markerPillarMat = new THREE.MeshLambertMaterial({
-      color: 0x38e1ff,
-      emissive: new THREE.Color(0x1a88bb),
-      emissiveIntensity: 0.6,
-      transparent: true,
-      opacity: 0.9
-    });
-    const markerPillar = new THREE.Mesh(markerPillarGeo, markerPillarMat);
-    markerPillar.position.y = 0.72;
-    destinationMarker.add(markerPillar);
-
-    // 4. Subtle glowing path line connecting player to waypoints
-    const pathLineMat = new THREE.LineBasicMaterial({
+    // Pulsing light pillar
+    const pillarGeo = new THREE.CylinderGeometry(0.04, 0.04, 1.5, 8);
+    const pillarMat = new THREE.MeshBasicMaterial({
       color: 0x38e1ff,
       transparent: true,
-      opacity: 0.6,
-      linewidth: 2,
-      depthWrite: false
+      opacity: 0.6
+    });
+    const markerPillar = new THREE.Mesh(pillarGeo, pillarMat);
+    markerPillar.position.y = 0.75;
+    markerGroup.add(markerPillar);
+
+    scene.add(markerGroup);
+    const destinationMarker = markerGroup;
+
+    // Path Line
+    const pathLineMat = new THREE.LineDashedMaterial({
+      color: 0x38e1ff,
+      dashSize: 0.3,
+      gapSize: 0.15,
+      linewidth: 2
     });
     const pathLineGeo = new THREE.BufferGeometry();
     const pathLine = new THREE.Line(pathLineGeo, pathLineMat);
     pathLine.visible = false;
     scene.add(pathLine);
 
-    // Path state tracking
-    let activePath: PathPoint[] = [];
-    let currentWaypointIndex = 0;
-    let pendingAction: PendingAction | null = null;
-    let markerPulseTime = 0;
-    let unreachableTimer = 0;
-    let stuckTimer = 0;
-    let lastPlayerPosCheck = new THREE.Vector3();
+    const updatePathLineMesh = (points: Array<{ x: number; y: number; z: number }>) => {
+      if (points.length < 2) {
+        pathLine.visible = false;
+        return;
+      }
+      const elevated = points.map(p => new THREE.Vector3(p.x, p.y + 0.15, p.z));
+      pathLine.geometry.dispose();
+      pathLine.geometry = new THREE.BufferGeometry().setFromPoints(elevated);
+      pathLine.computeLineDistances();
+      pathLine.visible = true;
+    };
 
-    const setMarkerColor = (colorHex: number, emissiveHex: number) => {
-      markerRingMat.color.setHex(colorHex);
-      markerPillarMat.color.setHex(colorHex);
-      markerPillarMat.emissive.setHex(emissiveHex);
+    const setMarkerColor = (colorHex: number, pColorHex: number) => {
+      ringMat.color.setHex(colorHex);
+      pillarMat.color.setHex(pColorHex);
       pathLineMat.color.setHex(colorHex);
     };
 
+    // --- Input & Movement State ---
+    const keys: Record<string, boolean> = {};
+    const mouseNDC = new THREE.Vector2(-999, -999);
+    const raycaster = new THREE.Raycaster();
+    let currentHit: RaycastHit | null = null;
+
+    let isMouseDown = false;
+    let mouseButton = 0;
+    let isMiddleDragging = false;
+    let lastMiddleX = 0;
+    let lastMiddleY = 0;
+    let targetElevation = 0.785; // 45 degrees
+    let currentElevation = 0.785;
+
+    // Path following state (ONLY triggered on Shift+Click!)
+    let activePath: PathPoint[] | null = null;
+    let currentWaypointIndex = 0;
+    let markerPulseTime = 0;
+
     const clearActivePath = () => {
-      activePath = [];
-      pendingAction = null;
+      activePath = null;
       currentWaypointIndex = 0;
       destinationMarker.visible = false;
       pathLine.visible = false;
     };
 
-    const updatePathLineMesh = (points: { x: number; y: number; z: number }[]) => {
-      if (points.length < 2) {
-        pathLine.visible = false;
-        return;
-      }
-      const vectors = points.map(p => new THREE.Vector3(p.x, p.y + 0.08, p.z));
-      pathLineGeo.setFromPoints(vectors);
-      pathLine.visible = true;
-    };
-
-    const showUnreachableMarker = (pos: { x: number; y: number; z: number }) => {
-      destinationMarker.position.set(pos.x, pos.y, pos.z);
-      destinationMarker.visible = true;
-      setMarkerColor(0xff2222, 0x880000);
-      markerRing.scale.set(1.4, 1, 1.4);
-      unreachableTimer = 0.75;
-      sound.playUnreachable();
-      addFloatingText('Cannot reach location!', pos.x, pos.y + 1.2, pos.z, '#f87171');
-      pathLine.visible = false;
-      activePath = [];
-      pendingAction = null;
-    };
-
-    const executePendingAction = (action: PendingAction | null) => {
-      if (!action) return;
-
-      if (action.type === 'enemy' && action.mobId) {
-        const mob = mobManager.mobs.find(m => m.id === action.mobId);
-        if (mob && playerPos.distanceTo(new THREE.Vector3(mob.x, mob.y, mob.z)) < 3.5) {
-          targetFacingAngle = Math.atan2(mob.x - playerPos.x, mob.z - playerPos.z);
-          character.triggerAttack();
-          sound.playSlash();
-          const toolDmg = activeItemRef.current?.damage || 2;
-          const kx = mob.x - playerPos.x;
-          const kz = mob.z - playerPos.z;
-          const kLen = Math.hypot(kx, kz) || 1;
-          mob.vx = (kx / kLen) * 3.4;
-          mob.vz = (kz / kLen) * 3.4;
-          mob.vy = 2.5;
-
-          const { dead } = mobManager.hitMob(mob.id, toolDmg);
-          addFloatingText(`-${toolDmg}`, mob.x, mob.y + 1.2, mob.z, '#ff4444');
-          if (dead) {
-            sound.playLevelUp();
-            addFloatingText('+25 XP', mob.x, mob.y + 1.5, mob.z, '#ffdd44');
-            setPlayerStats(prev => ({
-              ...prev,
-              xp: prev.xp + 25,
-              level: Math.floor((prev.xp + 25) / 100) + 1,
-              monstersDefeated: prev.monstersDefeated + 1
-            }));
-          }
-        }
-      } else if (action.type === 'npc' && action.mobId) {
-        const mob = mobManager.mobs.find(m => m.id === action.mobId);
-        if (mob && playerPos.distanceTo(new THREE.Vector3(mob.x, mob.y, mob.z)) < 3.5) {
-          targetFacingAngle = Math.atan2(mob.x - playerPos.x, mob.z - playerPos.z);
-          character.triggerInteract();
-          if (mob.type === 'villager') {
-            sound.playItemCollect();
-            const quotes = [
-              "Welcome to the voxel realm, traveler!",
-              "Legend has it golden chests are hidden in dungeons!",
-              "Watch out for skeletons and cave slimes!",
-              "A trusty iron pickaxe can pierce through ruby veins!",
-              "Press C to customize your outfit and appearance!"
-            ];
-            const quote = quotes[Math.floor(Math.random() * quotes.length)];
-            addFloatingText(quote, mob.x, mob.y + 1.6, mob.z, '#4ade80');
-          } else if (mob.type === 'sheep') {
-            sound.playStep('grass');
-            addFloatingText('Baaa! 🐑 (Sheared Wool)', mob.x, mob.y + 1.2, mob.z, '#f5f5f4');
-            mobManager.spawnDrop({
-              id: 'wool',
-              name: 'White Wool',
-              type: 'resource',
-              count: 1,
-              maxStack: 64,
-              description: 'Warm fluffy wool from a friendly sheep'
-            }, mob.x, mob.y + 0.5, mob.z);
-          }
-        }
-      } else if (action.type === 'chest' && action.coords) {
-        character.triggerInteract();
-        const chestItems = world.chestContents.get(action.coords) || [];
-        onOpenChest?.(action.coords, chestItems);
-      } else if (action.type === 'bench') {
-        character.triggerInteract();
-        onOpenCrafting?.(true);
-      } else if ((action.type === 'tree' || action.type === 'resource') && action.blockX !== undefined) {
-        const bx = action.blockX;
-        const by = action.blockY!;
-        const bz = action.blockZ!;
-        targetFacingAngle = Math.atan2(bx + 0.5 - playerPos.x, bz + 0.5 - playerPos.z);
-        character.triggerMine();
-        if (gameModeRef.current === 'creative') {
-          const broken = world.breakBlock(bx, by, bz);
-          if (broken !== BlockType.AIR) {
-            sound.playBreak();
-            addFloatingText('Break', bx + 0.5, by + 1.0, bz + 0.5, '#ffffff');
-          }
-        } else {
-          miningBlockCoords = { x: bx, y: by, z: bz };
-          miningProgress = 0.2;
-          sound.playMine();
-        }
-      }
-    };
-
-    // --- Interaction States ---
-    const keys: Record<string, boolean> = {};
-    let mouseNDC = new THREE.Vector2(-999, -999);
-    const raycaster = new THREE.Raycaster();
-    let currentHit: RaycastHit | null = null;
-    let isMouseDown = false;
-    let mouseButton = 0;
+    // Mining accumulator
     let miningBlockCoords: { x: number; y: number; z: number } | null = null;
     let miningProgress = 0;
-    // Initialize character facing forward into the world (front facing away from camera)
-    let targetFacingAngle = cameraAngleRef.current + Math.PI;
-    let currentFacingAngle = targetFacingAngle;
 
-    // Camera dynamic pitch and elevation controls
-    let currentElevation = 0.65; // ~37 degrees isometric pitch
-    let targetElevation = 0.65;
-    let isMiddleDragging = false;
-    let lastMiddleX = 0;
-    let lastMiddleY = 0;
+    let currentFacingAngle = cameraAngleRef.current + Math.PI;
+    let targetFacingAngle = currentFacingAngle;
 
-    // --- Input Listeners ---
+    // Camera follow position (smooth damping)
+    const cameraFocusPos = new THREE.Vector3().copy(playerPos);
+
+    // --- Key Event Listeners ---
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore gameplay keys if dead, typing in an input, or modal is open
       if (isDeadRef.current || isModalOpenRef.current) return;
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
 
       keys[e.code] = true;
-      if (e.code === 'KeyQ') onRotateCamera(-1);
-      if (e.code === 'KeyE') onRotateCamera(1);
-      if (e.code === 'KeyR') {
-        targetElevation = 0.65;
-        onResetCamera?.();
+
+      // WASD / Arrow key movement instantly cancels auto-pathing
+      if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        if (activePath) {
+          clearActivePath();
+        }
       }
     };
 
@@ -484,22 +393,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const handleBlur = () => {
       for (const k in keys) keys[k] = false;
+      isMouseDown = false;
       isMiddleDragging = false;
+      crackMesh.visible = false;
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      const rect = renderer.domElement.getBoundingClientRect();
+      const rect = container.getBoundingClientRect();
       mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseNDC.y = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
+      mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-      // Middle mouse button drag: rotate left/right and adjust pitch/elevation up/down
       if (isMiddleDragging) {
         const dx = e.clientX - lastMiddleX;
         const dy = e.clientY - lastMiddleY;
         lastMiddleX = e.clientX;
         lastMiddleY = e.clientY;
 
-        // Rotate camera azimuth around the player smoothly
         if (Math.abs(dx) > 0) {
           if (onOrbitCamera) {
             onOrbitCamera(dx * -0.008);
@@ -507,12 +416,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             onRotateCamera(dx * -0.015);
           }
         }
-
-        // Adjust camera pitch / elevation angle
         targetElevation = Math.max(0.20, Math.min(1.35, targetElevation + dy * 0.007));
       }
     };
 
+    // --- Mouse Down Handler: Strict Separation of Normal Click vs Shift-Click ---
     const handleMouseDown = (e: MouseEvent) => {
       if (isDeadRef.current || isModalOpenRef.current) return;
 
@@ -528,13 +436,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       isMouseDown = true;
       mouseButton = e.button;
 
-      // Right-click: Place block or open chest/crafting table
       if (e.button === 2) {
+        // Right click: Place block or open chest/crafting table
         e.preventDefault();
         handleRightClickAction();
-      } else if (e.button === 0) {
-        // Left click: Attack monster or start mining block
-        handleLeftClickAction();
+        return;
+      }
+
+      if (e.button === 0) {
+        // Left Click: Check Shift Key at the exact moment of click
+        const isShiftHeld = e.shiftKey || touchShiftModeRef.current;
+
+        if (isShiftHeld) {
+          // ==========================================
+          // SHIFT + CLICK: PATHFINDING ONLY!
+          // ==========================================
+          handleShiftClickPathfind();
+        } else {
+          // ==========================================
+          // NORMAL CLICK: WORLD INTERACTION ONLY!
+          // Mining, attack, chest/crafting interaction.
+          // NEVER triggers pathfinding!
+          // ==========================================
+          handleNormalLeftClick();
+        }
       }
     };
 
@@ -568,15 +493,238 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     canvasElem.addEventListener('wheel', handleWheel, { passive: false });
     canvasElem.addEventListener('contextmenu', handleContextMenu);
 
-    // --- Actions ---
+    // ==========================================
+    // ACTION HANDLERS
+    // ==========================================
+
+    /**
+     * SHIFT + CLICK PATHFINDING
+     * Automatically calculates path to clicked location or closest reachable spot.
+     * Avoids obstacles, navigates around buildings, walls, trees, water.
+     */
+    const handleShiftClickPathfind = () => {
+      raycaster.setFromCamera(mouseNDC, camera);
+
+      // Check if clicked a mob with Shift
+      const mobIntersects = raycaster.intersectObjects(mobManager.group.children, true);
+      let clickedMob: MobEntity | null = null;
+      if (mobIntersects.length > 0) {
+        let curObj: THREE.Object3D | null = mobIntersects[0].object;
+        while (curObj && curObj !== mobManager.group) {
+          if (curObj.userData?.mob) {
+            clickedMob = curObj.userData.mob;
+            break;
+          }
+          curObj = curObj.parent;
+        }
+      }
+
+      if (clickedMob) {
+        const targetSpot = findAdjacentWalkableSpot(world, clickedMob.x, clickedMob.y, clickedMob.z, playerPos);
+        if (targetSpot) {
+          const path = calculatePath(world, playerPos, targetSpot);
+          if (path && path.length > 0) {
+            activePath = path;
+            currentWaypointIndex = 0;
+            destinationMarker.position.set(targetSpot.x, targetSpot.y, targetSpot.z);
+            destinationMarker.visible = true;
+            setMarkerColor(0xffbb22, 0x885500);
+            sound.playDestinationPing();
+            updatePathLineMesh([playerPos, ...path]);
+            addFloatingText('Pathfinding...', playerPos.x, playerPos.y + 1.2, playerPos.z, '#38e1ff');
+            return;
+          }
+        }
+      }
+
+      // Check if clicked terrain block with Shift
+      if (currentHit) {
+        const destX = currentHit.blockX + 0.5;
+        const destY = currentHit.blockY + 1.0;
+        const destZ = currentHit.blockZ + 0.5;
+
+        let path = calculatePath(world, playerPos, { x: destX, y: destY, z: destZ });
+        if (!path || path.length === 0) {
+          const altY = findGroundHeight(world, currentHit.blockX, currentHit.blockZ, currentHit.blockY);
+          if (altY !== null) {
+            path = calculatePath(world, playerPos, { x: destX, y: altY, z: destZ });
+          }
+        }
+
+        if (path && path.length > 0) {
+          activePath = path;
+          currentWaypointIndex = 0;
+          const finalPoint = path[path.length - 1];
+          destinationMarker.position.set(finalPoint.x, finalPoint.y, finalPoint.z);
+          destinationMarker.visible = true;
+          setMarkerColor(0x38e1ff, 0x1a88bb);
+          sound.playDestinationPing();
+          updatePathLineMesh([playerPos, ...path]);
+          addFloatingText('Pathing...', finalPoint.x, finalPoint.y + 1.2, finalPoint.z, '#38e1ff');
+        } else {
+          // Destination unreachable: attempt closest adjacent spot
+          const adj = findAdjacentWalkableSpot(world, currentHit.blockX, currentHit.blockY, currentHit.blockZ, playerPos);
+          if (adj) {
+            const adjPath = calculatePath(world, playerPos, adj);
+            if (adjPath && adjPath.length > 0) {
+              activePath = adjPath;
+              currentWaypointIndex = 0;
+              destinationMarker.position.set(adj.x, adj.y, adj.z);
+              destinationMarker.visible = true;
+              setMarkerColor(0xfacc15, 0x854d0e);
+              sound.playDestinationPing();
+              updatePathLineMesh([playerPos, ...adjPath]);
+              addFloatingText('Closest Path', adj.x, adj.y + 1.2, adj.z, '#facc15');
+              return;
+            }
+          }
+          addFloatingText('Unreachable', destX, destY + 0.5, destZ, '#ef4444');
+          sound.playHit();
+        }
+      }
+    };
+
+    /**
+     * NORMAL LEFT CLICK:
+     * - Mine blocks (starts mining swing; holding left click accumulates progress)
+     * - Melee attack if within range of an enemy
+     * - Interact with NPC, chest, or crafting bench if within range
+     * - Does NOT trigger pathfinding!
+     */
+    const handleNormalLeftClick = () => {
+      // 1. Raycast against Mobs
+      raycaster.setFromCamera(mouseNDC, camera);
+      const mobIntersects = raycaster.intersectObjects(mobManager.group.children, true);
+      let clickedMob: MobEntity | null = null;
+
+      if (mobIntersects.length > 0) {
+        let curObj: THREE.Object3D | null = mobIntersects[0].object;
+        while (curObj && curObj !== mobManager.group) {
+          if (curObj.userData?.mob) {
+            clickedMob = curObj.userData.mob;
+            break;
+          }
+          curObj = curObj.parent;
+        }
+      }
+
+      if (clickedMob) {
+        const mobPos = new THREE.Vector3(clickedMob.x, clickedMob.y, clickedMob.z);
+        const distToMob = playerPos.distanceTo(mobPos);
+
+        if (distToMob <= 3.4) {
+          // In melee range: strike!
+          character.triggerAttack();
+          sound.playSlash();
+          targetFacingAngle = Math.atan2(clickedMob.x - playerPos.x, clickedMob.z - playerPos.z);
+
+          const toolDmg = activeItemRef.current?.damage || 2;
+          const kx = clickedMob.x - playerPos.x;
+          const kz = clickedMob.z - playerPos.z;
+          const kLen = Math.hypot(kx, kz) || 1;
+          clickedMob.vx = (kx / kLen) * 3.4;
+          clickedMob.vz = (kz / kLen) * 3.4;
+          clickedMob.vy = 2.5;
+
+          const { dead } = mobManager.hitMob(clickedMob.id, toolDmg);
+          addFloatingText(`-${toolDmg}`, clickedMob.x, clickedMob.y + 1.2, clickedMob.z, '#ff4444');
+
+          if (dead) {
+            sound.playLevelUp();
+            addFloatingText('+25 XP', clickedMob.x, clickedMob.y + 1.5, clickedMob.z, '#ffdd44');
+            setPlayerStats(prev => ({
+              ...prev,
+              xp: prev.xp + 25,
+              level: Math.floor((prev.xp + 25) / 100) + 1,
+              monstersDefeated: prev.monstersDefeated + 1
+            }));
+          }
+          return;
+        } else if (clickedMob.type === 'villager' || clickedMob.type === 'sheep') {
+          // NPC interaction dialogue
+          character.triggerInteract();
+          targetFacingAngle = Math.atan2(clickedMob.x - playerPos.x, clickedMob.z - playerPos.z);
+          if (clickedMob.type === 'villager') {
+            sound.playItemCollect();
+            const quotes = [
+              "Welcome to the infinite voxel realm!",
+              "Explore mountains, rivers, and ancient ruins!",
+              "Press Shift + Click to automatically navigate!",
+              "A sharp sword keeps nighttime creatures away!",
+              "Press C to change your character's outfit!"
+            ];
+            addFloatingText(quotes[Math.floor(Math.random() * quotes.length)], clickedMob.x, clickedMob.y + 1.6, clickedMob.z, '#4ade80');
+          } else {
+            sound.playStep('grass');
+            addFloatingText('Baaa! 🐑 (Sheared Wool)', clickedMob.x, clickedMob.y + 1.2, clickedMob.z, '#f5f5f4');
+            mobManager.spawnDrop({
+              id: 'wool',
+              name: 'White Wool',
+              type: 'resource',
+              count: 1,
+              maxStack: 64,
+              description: 'Soft fluffy sheep wool'
+            }, clickedMob.x, clickedMob.y + 0.5, clickedMob.z);
+          }
+          return;
+        }
+      }
+
+      // 2. Block Interaction / Mining
+      if (currentHit) {
+        const hitCenter = new THREE.Vector3(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5);
+        const distToBlock = playerPos.distanceTo(hitCenter);
+
+        targetFacingAngle = Math.atan2(currentHit.blockX + 0.5 - playerPos.x, currentHit.blockZ + 0.5 - playerPos.z);
+
+        // Chest Interaction
+        if (currentHit.blockType === BlockType.CHEST && distToBlock <= 3.6) {
+          character.triggerInteract();
+          const chestKey = `${currentHit.blockX},${currentHit.blockY},${currentHit.blockZ}`;
+          const chestItems = world.chestContents.get(chestKey) || [];
+          onOpenChest?.(chestKey, chestItems);
+          return;
+        }
+
+        // Crafting Bench Interaction
+        if (currentHit.blockType === BlockType.CRAFTING_BENCH && distToBlock <= 3.6) {
+          character.triggerInteract();
+          onOpenCrafting?.(true);
+          return;
+        }
+
+        // Mine block in creative (instant break)
+        if (gameModeRef.current === 'creative' && distToBlock <= 6.5) {
+          character.triggerMine();
+          const broken = world.breakBlock(currentHit.blockX, currentHit.blockY, currentHit.blockZ);
+          if (broken !== BlockType.AIR) {
+            sound.playBreak();
+            addFloatingText('Break', currentHit.blockX + 0.5, currentHit.blockY + 1.0, currentHit.blockZ + 0.5, '#ffffff');
+          }
+          return;
+        }
+
+        // In survival, holding left click accumulates mining progress
+        if (distToBlock <= 6.5) {
+          character.triggerMine();
+          miningBlockCoords = { x: currentHit.blockX, y: currentHit.blockY, z: currentHit.blockZ };
+          miningProgress = 0;
+        }
+      }
+    };
+
+    /**
+     * RIGHT CLICK ACTION:
+     * - Open chest / crafting table
+     * - Place held block
+     */
     const handleRightClickAction = () => {
       if (!currentHit) return;
 
-      // Check distance to player
       const dist = playerPos.distanceTo(new THREE.Vector3(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5));
       if (dist > 7) return;
 
-      // Check if clicked special interactive blocks
+      // Special interactive blocks
       if (currentHit.blockType === BlockType.CHEST) {
         character.triggerInteract();
         const chestKey = `${currentHit.blockX},${currentHit.blockY},${currentHit.blockZ}`;
@@ -598,10 +746,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const py = currentHit.placeY;
       const pz = currentHit.placeZ;
 
-      // Turn character to face target block when placing
       targetFacingAngle = Math.atan2(px + 0.5 - playerPos.x, pz + 0.5 - playerPos.z);
 
-      // Prevent placing block inside player's body AABB
+      // Prevent placing inside player body
       const playerBox = new THREE.Box3(
         new THREE.Vector3(playerPos.x - 0.35, playerPos.y, playerPos.z - 0.35),
         new THREE.Vector3(playerPos.x + 0.35, playerPos.y + 1.35, playerPos.z + 0.35)
@@ -617,7 +764,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         sound.playPlace();
         character.triggerBuild();
 
-        // Decrement item in inventory if in survival mode
         if (gameModeRef.current === 'survival') {
           setInventory(prev => {
             return prev.map(it => {
@@ -633,303 +779,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ...prev,
           blocksPlaced: prev.blocksPlaced + 1
         }));
-      }
-    };
-
-    const handleLeftClickAction = () => {
-      // 1. Raycast against Mobs (hostiles, friendly NPCs, and wildlife)
-      raycaster.setFromCamera(mouseNDC, camera);
-      const mobIntersects = raycaster.intersectObjects(mobManager.group.children, true);
-      let clickedMob: MobEntity | null = null;
-
-      if (mobIntersects.length > 0) {
-        let curObj: THREE.Object3D | null = mobIntersects[0].object;
-        while (curObj && curObj !== mobManager.group) {
-          if (curObj.userData?.mob) {
-            clickedMob = curObj.userData.mob;
-            break;
-          }
-          curObj = curObj.parent;
-        }
-      }
-
-      if (clickedMob) {
-        const mobPos = new THREE.Vector3(clickedMob.x, clickedMob.y, clickedMob.z);
-        const distToMob = playerPos.distanceTo(mobPos);
-
-        // Hostile Monster Click
-        if (clickedMob.type === 'skeleton' || clickedMob.type === 'slime' || clickedMob.type === 'goblin') {
-          if (distToMob <= 3.2) {
-            // In melee range: strike immediately
-            character.triggerAttack();
-            sound.playSlash();
-            targetFacingAngle = Math.atan2(clickedMob.x - playerPos.x, clickedMob.z - playerPos.z);
-            const toolDmg = activeItemRef.current?.damage || 2;
-            const kx = clickedMob.x - playerPos.x;
-            const kz = clickedMob.z - playerPos.z;
-            const kLen = Math.hypot(kx, kz) || 1;
-            clickedMob.vx = (kx / kLen) * 3.4;
-            clickedMob.vz = (kz / kLen) * 3.4;
-            clickedMob.vy = 2.5;
-
-            const { dead } = mobManager.hitMob(clickedMob.id, toolDmg);
-            addFloatingText(`-${toolDmg}`, clickedMob.x, clickedMob.y + 1.2, clickedMob.z, '#ff4444');
-            if (dead) {
-              sound.playLevelUp();
-              addFloatingText('+25 XP', clickedMob.x, clickedMob.y + 1.5, clickedMob.z, '#ffdd44');
-              setPlayerStats(prev => ({
-                ...prev,
-                xp: prev.xp + 25,
-                level: Math.floor((prev.xp + 25) / 100) + 1,
-                monstersDefeated: prev.monstersDefeated + 1
-              }));
-            }
-            clearActivePath();
-            return;
-          } else {
-            // Out of range: calculate path towards adjacent tile to enemy
-            const targetSpot = findAdjacentWalkableSpot(world, clickedMob.x, clickedMob.y, clickedMob.z, playerPos);
-            if (targetSpot) {
-              const path = calculatePath(world, playerPos, targetSpot);
-              if (path && path.length > 0) {
-                activePath = path;
-                currentWaypointIndex = 0;
-                pendingAction = { type: 'enemy', mobId: clickedMob.id };
-                destinationMarker.position.set(clickedMob.x, clickedMob.y, clickedMob.z);
-                destinationMarker.visible = true;
-                setMarkerColor(0xff3344, 0x881111);
-                sound.playDestinationPing();
-                updatePathLineMesh([playerPos, ...path]);
-                return;
-              }
-            }
-            showUnreachableMarker(clickedMob);
-            return;
-          }
-        }
-
-        // Friendly NPC Click (Villager or Sheep)
-        if (clickedMob.type === 'villager' || clickedMob.type === 'sheep') {
-          if (distToMob <= 3.2) {
-            // In interaction range
-            targetFacingAngle = Math.atan2(clickedMob.x - playerPos.x, clickedMob.z - playerPos.z);
-            character.triggerInteract();
-            if (clickedMob.type === 'villager') {
-              sound.playItemCollect();
-              const quotes = [
-                "Welcome to the voxel realm, traveler!",
-                "Rumor has it chests are buried in ancient ruins!",
-                "Watch out for slimes and skeletons at dusk!",
-                "A sharp iron sword keeps goblins at bay!",
-                "Press C to customize your outfit and colors!"
-              ];
-              const quote = quotes[Math.floor(Math.random() * quotes.length)];
-              addFloatingText(quote, clickedMob.x, clickedMob.y + 1.6, clickedMob.z, '#4ade80');
-            } else if (clickedMob.type === 'sheep') {
-              sound.playStep('grass');
-              addFloatingText('Baaa! 🐑 (Sheared Wool)', clickedMob.x, clickedMob.y + 1.2, clickedMob.z, '#f5f5f4');
-              mobManager.spawnDrop({
-                id: 'wool',
-                name: 'White Wool',
-                type: 'resource',
-                count: 1,
-                maxStack: 64,
-                description: 'Soft wool from a friendly sheep'
-              }, clickedMob.x, clickedMob.y + 0.5, clickedMob.z);
-            }
-            clearActivePath();
-            return;
-          } else {
-            // Out of range: calculate path towards NPC
-            const targetSpot = findAdjacentWalkableSpot(world, clickedMob.x, clickedMob.y, clickedMob.z, playerPos);
-            if (targetSpot) {
-              const path = calculatePath(world, playerPos, targetSpot);
-              if (path && path.length > 0) {
-                activePath = path;
-                currentWaypointIndex = 0;
-                pendingAction = { type: 'npc', mobId: clickedMob.id };
-                destinationMarker.position.set(clickedMob.x, clickedMob.y, clickedMob.z);
-                destinationMarker.visible = true;
-                setMarkerColor(0xffbb22, 0x885500);
-                sound.playDestinationPing();
-                updatePathLineMesh([playerPos, ...path]);
-                return;
-              }
-            }
-            showUnreachableMarker(clickedMob);
-            return;
-          }
-        }
-      }
-
-      // 2. Block or Ground Click Handling
-      if (currentHit) {
-        const hitCenter = new THREE.Vector3(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5);
-        const distToBlock = playerPos.distanceTo(hitCenter);
-
-        // Chest Interaction
-        if (currentHit.blockType === BlockType.CHEST) {
-          const chestKey = `${currentHit.blockX},${currentHit.blockY},${currentHit.blockZ}`;
-          if (distToBlock <= 3.4) {
-            character.triggerInteract();
-            const chestItems = world.chestContents.get(chestKey) || [];
-            onOpenChest?.(chestKey, chestItems);
-            clearActivePath();
-            return;
-          } else {
-            const targetSpot = findAdjacentWalkableSpot(world, currentHit.blockX + 0.5, currentHit.blockY, currentHit.blockZ + 0.5, playerPos);
-            if (targetSpot) {
-              const path = calculatePath(world, playerPos, targetSpot);
-              if (path && path.length > 0) {
-                activePath = path;
-                currentWaypointIndex = 0;
-                pendingAction = { type: 'chest', coords: chestKey };
-                destinationMarker.position.set(targetSpot.x, targetSpot.y, targetSpot.z);
-                destinationMarker.visible = true;
-                setMarkerColor(0xffbb22, 0x885500);
-                sound.playDestinationPing();
-                updatePathLineMesh([playerPos, ...path]);
-                return;
-              }
-            }
-            showUnreachableMarker({ x: currentHit.blockX + 0.5, y: currentHit.blockY + 1, z: currentHit.blockZ + 0.5 });
-            return;
-          }
-        }
-
-        // Crafting Bench Interaction
-        if (currentHit.blockType === BlockType.CRAFTING_BENCH) {
-          if (distToBlock <= 3.4) {
-            character.triggerInteract();
-            onOpenCrafting?.(true);
-            clearActivePath();
-            return;
-          } else {
-            const targetSpot = findAdjacentWalkableSpot(world, currentHit.blockX + 0.5, currentHit.blockY, currentHit.blockZ + 0.5, playerPos);
-            if (targetSpot) {
-              const path = calculatePath(world, playerPos, targetSpot);
-              if (path && path.length > 0) {
-                activePath = path;
-                currentWaypointIndex = 0;
-                pendingAction = { type: 'bench' };
-                destinationMarker.position.set(targetSpot.x, targetSpot.y, targetSpot.z);
-                destinationMarker.visible = true;
-                setMarkerColor(0xffbb22, 0x885500);
-                sound.playDestinationPing();
-                updatePathLineMesh([playerPos, ...path]);
-                return;
-              }
-            }
-            showUnreachableMarker({ x: currentHit.blockX + 0.5, y: currentHit.blockY + 1, z: currentHit.blockZ + 0.5 });
-            return;
-          }
-        }
-
-        // Tree Click (WOOD_LOG, LEAVES)
-        if (currentHit.blockType === BlockType.WOOD_LOG || currentHit.blockType === BlockType.LEAVES) {
-          if (distToBlock <= 3.4) {
-            character.triggerMine();
-            targetFacingAngle = Math.atan2(currentHit.blockX + 0.5 - playerPos.x, currentHit.blockZ + 0.5 - playerPos.z);
-            if (gameModeRef.current === 'creative') {
-              const broken = world.breakBlock(currentHit.blockX, currentHit.blockY, currentHit.blockZ);
-              if (broken !== BlockType.AIR) {
-                sound.playBreak();
-                addFloatingText('Break', currentHit.blockX + 0.5, currentHit.blockY + 1.0, currentHit.blockZ + 0.5, '#ffffff');
-              }
-            }
-            clearActivePath();
-            return;
-          } else {
-            const targetSpot = findAdjacentWalkableSpot(world, currentHit.blockX + 0.5, currentHit.blockY, currentHit.blockZ + 0.5, playerPos);
-            if (targetSpot) {
-              const path = calculatePath(world, playerPos, targetSpot);
-              if (path && path.length > 0) {
-                activePath = path;
-                currentWaypointIndex = 0;
-                pendingAction = { type: 'tree', blockX: currentHit.blockX, blockY: currentHit.blockY, blockZ: currentHit.blockZ };
-                destinationMarker.position.set(targetSpot.x, targetSpot.y, targetSpot.z);
-                destinationMarker.visible = true;
-                setMarkerColor(0x44ffaa, 0x117733);
-                sound.playDestinationPing();
-                updatePathLineMesh([playerPos, ...path]);
-                return;
-              }
-            }
-            showUnreachableMarker({ x: currentHit.blockX + 0.5, y: currentHit.blockY + 1, z: currentHit.blockZ + 0.5 });
-            return;
-          }
-        }
-
-        // Resource Ore / Stone Click
-        if (currentHit.blockType === BlockType.STONE || currentHit.blockType === BlockType.COAL_ORE ||
-            currentHit.blockType === BlockType.IRON_ORE || currentHit.blockType === BlockType.GOLD_ORE ||
-            currentHit.blockType === BlockType.RUBY_ORE) {
-          if (distToBlock <= 3.4) {
-            character.triggerMine();
-            targetFacingAngle = Math.atan2(currentHit.blockX + 0.5 - playerPos.x, currentHit.blockZ + 0.5 - playerPos.z);
-            if (gameModeRef.current === 'creative') {
-              const broken = world.breakBlock(currentHit.blockX, currentHit.blockY, currentHit.blockZ);
-              if (broken !== BlockType.AIR) {
-                sound.playBreak();
-                addFloatingText('Break', currentHit.blockX + 0.5, currentHit.blockY + 1.0, currentHit.blockZ + 0.5, '#ffffff');
-              }
-            }
-            clearActivePath();
-            return;
-          } else {
-            const targetSpot = findAdjacentWalkableSpot(world, currentHit.blockX + 0.5, currentHit.blockY, currentHit.blockZ + 0.5, playerPos);
-            if (targetSpot) {
-              const path = calculatePath(world, playerPos, targetSpot);
-              if (path && path.length > 0) {
-                activePath = path;
-                currentWaypointIndex = 0;
-                pendingAction = { type: 'resource', blockX: currentHit.blockX, blockY: currentHit.blockY, blockZ: currentHit.blockZ };
-                destinationMarker.position.set(targetSpot.x, targetSpot.y, targetSpot.z);
-                destinationMarker.visible = true;
-                setMarkerColor(0xffbb22, 0x885500);
-                sound.playDestinationPing();
-                updatePathLineMesh([playerPos, ...path]);
-                return;
-              }
-            }
-            showUnreachableMarker({ x: currentHit.blockX + 0.5, y: currentHit.blockY + 1, z: currentHit.blockZ + 0.5 });
-            return;
-          }
-        }
-
-        // Walkable Ground Click (Point-and-Click Movement)
-        const destX = currentHit.blockX + 0.5;
-        const destY = currentHit.blockY + 1.0;
-        const destZ = currentHit.blockZ + 0.5;
-
-        // If standing surface block is walkable
-        const path = calculatePath(world, playerPos, { x: destX, y: destY, z: destZ });
-        if (path && path.length > 0) {
-          activePath = path;
-          currentWaypointIndex = 0;
-          pendingAction = { type: 'ground' };
-          destinationMarker.position.set(destX, destY, destZ);
-          destinationMarker.visible = true;
-          setMarkerColor(0x38e1ff, 0x1a88bb);
-          sound.playDestinationPing();
-          updatePathLineMesh([playerPos, ...path]);
-        } else {
-          // Check ground height alternative
-          const altY = findGroundHeight(world, currentHit.blockX, currentHit.blockZ, currentHit.blockY);
-          const altPath = calculatePath(world, playerPos, { x: destX, y: altY, z: destZ });
-          if (altPath && altPath.length > 0) {
-            activePath = altPath;
-            currentWaypointIndex = 0;
-            pendingAction = { type: 'ground' };
-            destinationMarker.position.set(destX, altY, destZ);
-            destinationMarker.visible = true;
-            setMarkerColor(0x38e1ff, 0x1a88bb);
-            sound.playDestinationPing();
-            updatePathLineMesh([playerPos, ...altPath]);
-          } else {
-            showUnreachableMarker({ x: destX, y: destY, z: destZ });
-          }
-        }
       }
     };
 
@@ -964,19 +813,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const delta = Math.min((time - lastTime) / 1000, 0.1);
       lastTime = time;
 
-      // Respawn & Revival Handler Check (fixes character staying on floor)
+      // Respawn Handler
       const hasRespawnTriggered = respawnCountRef.current > lastProcessedRespawn;
       const hasRevived = !isDeadRef.current && character.isDead;
 
       if (hasRespawnTriggered || hasRevived) {
         lastProcessedRespawn = Math.max(lastProcessedRespawn + 1, respawnCountRef.current);
-        const safe = findSafeSurfaceSpawn(world);
+        const safe = findSafeSurfaceSpawn(world, Math.floor(playerPos.x), Math.floor(playerPos.z));
         playerPos.set(safe.x, safe.y, safe.z);
         playerVel.set(0, 0, 0);
         isDeadRef.current = false;
         invulnerableTimer = 3.0;
 
-        // Fully reset character orientation, standing upright
         character.resetFromDeath();
         targetFacingAngle = cameraAngleRef.current + Math.PI;
         currentFacingAngle = targetFacingAngle;
@@ -991,7 +839,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         invulnerableTimer -= delta;
       }
 
-      // 1. Update Zoom & Camera Frustum if changed
+      // Update Infinite Terrain Streaming and Dynamic Occlusion
+      world.update(playerPos.x, playerPos.z, playerPos.y, cameraAngleRef.current, blockOpacityRef.current);
+      updateInfiniteMobSpawning(time);
+
+      // Update Zoom & Frustum
       const desiredFrustum = zoomLevelRef.current;
       if (Math.abs(camera.top - desiredFrustum / 2) > 0.05) {
         const currentAspect = container.clientWidth / container.clientHeight;
@@ -1009,7 +861,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         playerVel.z = 0;
       }
 
-      // AABB collision tester
+      // Collision helper
       const playerRadius = 0.28;
       const playerHeight = 1.35;
       const collidesAt = (px: number, py: number, pz: number): boolean => {
@@ -1020,9 +872,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         const minZ = Math.floor(pz - playerRadius);
         const maxZ = Math.floor(pz + playerRadius);
 
-        for (let x = minX; x <= maxX; x++) {
-          for (let y = minY; y <= maxY; y++) {
-            for (let z = minZ; z <= maxZ; z++) {
+        for (let y = minY; y <= maxY; y++) {
+          for (let z = minZ; z <= maxZ; z++) {
+            for (let x = minX; x <= maxX; x++) {
               if (world.isSolid(x, y, z)) {
                 return true;
               }
@@ -1032,172 +884,106 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         return false;
       };
 
-      let isGrounded = collidesAt(playerPos.x, playerPos.y - 0.12, playerPos.z);
-
-      // 2. Player Movement (Direct Controls & Click-to-Move Pathfinding)
-      const feetBlock = world.getBlock(Math.floor(playerPos.x), Math.floor(playerPos.y + 0.1), Math.floor(playerPos.z));
-      const isInWater = feetBlock === BlockType.WATER;
-      const isRunning = (keys['ShiftLeft'] || keys['ShiftRight']) && !isInWater;
-      const speed = isInWater ? 3.0 : isRunning ? 7.6 : 4.8;
-      let inputX = 0;
-      let inputY = 0; // +1 = forward (W / Up into scene), -1 = backward (S / Down towards camera)
+      // 2. Player Movement Input
+      let moveX = 0;
+      let moveZ = 0;
 
       if (!isDeadRef.current && !isModalOpenRef.current) {
-        if (keys['KeyW'] || keys['ArrowUp']) inputY += 1;
-        if (keys['KeyS'] || keys['ArrowDown']) inputY -= 1;
-        if (keys['KeyA'] || keys['ArrowLeft']) inputX -= 1;
-        if (keys['KeyD'] || keys['ArrowRight']) inputX += 1;
+        if (keys['KeyW'] || keys['ArrowUp']) moveZ -= 1;
+        if (keys['KeyS'] || keys['ArrowDown']) moveZ += 1;
+        if (keys['KeyA'] || keys['ArrowLeft']) moveX -= 1;
+        if (keys['KeyD'] || keys['ArrowRight']) moveX += 1;
       }
 
-      const hasDirectInput = (inputX !== 0 || inputY !== 0) && !isDeadRef.current;
-      if (hasDirectInput && activePath.length > 0) {
-        // Direct manual movement overrides active path immediately
-        clearActivePath();
-      }
+      const isManualMoving = moveX !== 0 || moveZ !== 0;
 
-      let isMoving = false;
-
-      if (hasDirectInput) {
-        isMoving = true;
-        const inputLen = Math.hypot(inputX, inputY);
-        const normX = inputX / inputLen;
-        const normY = inputY / inputLen;
-
-        // Current isometric camera azimuth angle
-        const camAngle = cameraAngleRef.current;
-        const sinCam = Math.sin(camAngle);
-        const cosCam = Math.cos(camAngle);
-
-        const moveX = cosCam * normX - sinCam * normY;
-        const moveZ = -sinCam * normX - cosCam * normY;
-
-        playerVel.x = moveX * speed;
-        playerVel.z = moveZ * speed;
-
-        // Character always faces forward in the direction of movement
-        targetFacingAngle = Math.atan2(moveX, moveZ);
-
-        // Footstep sound
-        stepTimer += delta * speed;
-        if (stepTimer > 2.2) {
-          stepTimer = 0;
-          sound.playStep(isInWater ? 'water' : 'grass');
-        }
-      } else if (activePath.length > 0 && !isDeadRef.current && !isModalOpenRef.current) {
-        // Click-to-Move Path Following
-        const currentTarget = activePath[currentWaypointIndex];
-        const toX = currentTarget.x - playerPos.x;
-        const toZ = currentTarget.z - playerPos.z;
+      // Handle Shift-Click Pathfinding Movement
+      let isPathMoving = false;
+      if (activePath && activePath.length > 0 && !isManualMoving) {
+        const waypoint = activePath[currentWaypointIndex];
+        const toX = waypoint.x - playerPos.x;
+        const toZ = waypoint.z - playerPos.z;
         const distXZ = Math.hypot(toX, toZ);
 
-        if (distXZ < 0.32) {
-          // Reached current waypoint! Advance to next
+        if (distXZ < 0.28) {
           currentWaypointIndex++;
           if (currentWaypointIndex >= activePath.length) {
-            // Reached final destination
-            const finishedAction = pendingAction;
             clearActivePath();
-            executePendingAction(finishedAction);
+            sound.playStep('grass');
           }
         } else {
-          isMoving = true;
-          const dirX = toX / distXZ;
-          const dirZ = toZ / distXZ;
-
-          playerVel.x = dirX * speed;
-          playerVel.z = dirZ * speed;
-          targetFacingAngle = Math.atan2(dirX, dirZ);
-
-          // Step-up jump assist if next waypoint is higher and player is grounded
-          if (currentTarget.y > playerPos.y + 0.35 && (isGrounded || isInWater)) {
-            playerVel.y = 5.2;
-          }
-
-          stepTimer += delta * speed;
-          if (stepTimer > 2.2) {
-            stepTimer = 0;
-            sound.playStep(isInWater ? 'water' : 'grass');
-          }
-
-          // Stuck detection: if player is blocked by an obstruction for > 0.65s
-          if (lastPlayerPosCheck.distanceTo(playerPos) < 0.05) {
-            stuckTimer += delta;
-            if (stuckTimer > 0.65) {
-              stuckTimer = 0;
-              const dest = activePath[activePath.length - 1];
-              const repath = calculatePath(world, playerPos, dest);
-              if (repath && repath.length > 0) {
-                activePath = repath;
-                currentWaypointIndex = 0;
-                updatePathLineMesh([playerPos, ...repath]);
-              } else {
-                showUnreachableMarker(dest);
-                clearActivePath();
-              }
-            }
-          } else {
-            stuckTimer = 0;
-            lastPlayerPosCheck.copy(playerPos);
-          }
-
-          // Dynamic obstacle check: destination blocked
-          const dest = activePath[activePath.length - 1];
-          if (world.isSolid(Math.floor(dest.x), Math.floor(dest.y), Math.floor(dest.z))) {
-            const repath = calculatePath(world, playerPos, dest);
-            if (repath && repath.length > 0) {
-              activePath = repath;
-              currentWaypointIndex = 0;
-              updatePathLineMesh([playerPos, ...repath]);
-            } else {
-              showUnreachableMarker(dest);
-              clearActivePath();
-            }
-          }
+          moveX = toX / distXZ;
+          moveZ = toZ / distXZ;
+          isPathMoving = true;
+          targetFacingAngle = Math.atan2(toX, toZ);
 
           // Update remaining path line
-          if (currentWaypointIndex < activePath.length) {
-            const remainingPts = [
-              playerPos.clone(),
-              ...activePath.slice(currentWaypointIndex).map(p => new THREE.Vector3(p.x, p.y + 0.08, p.z))
-            ];
-            pathLineGeo.setFromPoints(remainingPts);
-            pathLine.visible = true;
-          }
+          const remainingWaypoints = [playerPos, ...activePath.slice(currentWaypointIndex)];
+          updatePathLineMesh(remainingWaypoints);
+        }
+      }
+
+      const isMoving = isManualMoving || isPathMoving;
+      const isRunning = (keys['ShiftLeft'] || keys['ShiftRight']) && isManualMoving;
+      const moveSpeed = isRunning ? 7.2 : 4.5;
+
+      // Grounding & Water check
+      const feetY = playerPos.y;
+      const isGrounded = collidesAt(playerPos.x, feetY - 0.08, playerPos.z);
+      const isInWater = world.getBlock(Math.floor(playerPos.x), Math.floor(playerPos.y + 0.3), Math.floor(playerPos.z)) === BlockType.WATER;
+
+      // Velocity calculation
+      if (isMoving) {
+        let inputAngle = Math.atan2(moveX, moveZ);
+        if (isManualMoving) {
+          const finalAngle = inputAngle + cameraAngleRef.current;
+          playerVel.x = Math.sin(finalAngle) * moveSpeed;
+          playerVel.z = Math.cos(finalAngle) * moveSpeed;
+          targetFacingAngle = finalAngle;
+        } else {
+          playerVel.x = moveX * moveSpeed;
+          playerVel.z = moveZ * moveSpeed;
+        }
+
+        // Footstep sounds
+        stepTimer += delta * (isRunning ? 1.6 : 1.0);
+        if (stepTimer > 0.35 && isGrounded) {
+          stepTimer = 0;
+          const underBlock = world.getBlock(Math.floor(playerPos.x), Math.floor(playerPos.y - 0.2), Math.floor(playerPos.z));
+          const def = BLOCK_DEFS[underBlock];
+          const st = def?.soundType === 'glass' ? 'stone' : (def?.soundType || 'grass');
+          sound.playStep(st);
         }
       } else {
         playerVel.x *= 0.65;
         playerVel.z *= 0.65;
       }
 
-      // 3. Gravity, Jump, and Swimming
-
-      if (isInWater) {
-        if (keys['Space'] && !isDeadRef.current && !isModalOpenRef.current) {
-          playerVel.y = 3.8; // swim upwards
-        } else {
-          playerVel.y = Math.max(-2.5, playerVel.y - 8.0 * delta); // gentle buoyancy
-        }
-      } else {
-        const gravity = 22.0;
-        playerVel.y -= gravity * delta;
-        if (keys['Space'] && isGrounded && !isDeadRef.current && !isModalOpenRef.current) {
-          playerVel.y = 7.6;
+      // Jump & Gravity
+      if (!isDeadRef.current && !isModalOpenRef.current && keys['Space']) {
+        if (isGrounded) {
+          playerVel.y = 7.5;
           sound.playJump();
+        } else if (isInWater) {
+          playerVel.y = 4.0;
         }
+      }
+
+      // Gravity
+      if (isInWater) {
+        playerVel.y = Math.max(-2.5, playerVel.y - 8.0 * delta);
+      } else {
+        playerVel.y -= 22.0 * delta;
       }
 
       // Vertical integration
       const nextY = playerPos.y + playerVel.y * delta;
-      if (playerVel.y <= 0) {
+      if (playerVel.y < 0) {
         if (collidesAt(playerPos.x, nextY, playerPos.z)) {
-          playerPos.y = Math.floor(nextY) + 1.0;
           playerVel.y = 0;
-          isGrounded = true;
+          playerPos.y = Math.floor(playerPos.y);
         } else {
           playerPos.y = nextY;
-          if (collidesAt(playerPos.x, playerPos.y - 0.12, playerPos.z)) {
-            isGrounded = true;
-          }
         }
       } else {
         if (collidesAt(playerPos.x, nextY, playerPos.z)) {
@@ -1207,19 +993,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // 4. Horizontal integration with 1-block auto step-up & wall sliding
+      // Horizontal integration with auto step-up
       if (!isDeadRef.current) {
-        // X axis movement
         const dx = playerVel.x * delta;
         if (Math.abs(dx) > 0.0001) {
           const targetX = playerPos.x + dx;
           if (!collidesAt(targetX, playerPos.y, playerPos.z)) {
             playerPos.x = targetX;
           } else {
-            // Auto step-up for 1 block
             const stepUpY = Math.floor(playerPos.y) + 1.0;
-            const stepDiff = stepUpY - playerPos.y;
-            if (stepDiff > 0 && stepDiff <= 1.05 && (isGrounded || isInWater)) {
+            if (stepUpY - playerPos.y <= 1.05 && (isGrounded || isInWater)) {
               if (!collidesAt(targetX, stepUpY, playerPos.z)) {
                 playerPos.y = stepUpY;
                 playerPos.x = targetX;
@@ -1232,17 +1015,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         }
 
-        // Z axis movement
         const dz = playerVel.z * delta;
         if (Math.abs(dz) > 0.0001) {
           const targetZ = playerPos.z + dz;
           if (!collidesAt(playerPos.x, playerPos.y, targetZ)) {
             playerPos.z = targetZ;
           } else {
-            // Auto step-up for 1 block
             const stepUpY = Math.floor(playerPos.y) + 1.0;
-            const stepDiff = stepUpY - playerPos.y;
-            if (stepDiff > 0 && stepDiff <= 1.05 && (isGrounded || isInWater)) {
+            if (stepUpY - playerPos.y <= 1.05 && (isGrounded || isInWater)) {
               if (!collidesAt(playerPos.x, stepUpY, targetZ)) {
                 playerPos.y = stepUpY;
                 playerPos.z = targetZ;
@@ -1256,21 +1036,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // Anti-stuck upward failsafe: if player somehow gets inside a solid block, pop up
-      if (world.isSolid(Math.floor(playerPos.x), Math.floor(playerPos.y + 0.15), Math.floor(playerPos.z))) {
-        playerPos.y = Math.floor(playerPos.y) + 1.0;
-        playerVel.y = 0;
-      }
-
-      // Keep inside bounds
-      playerPos.x = Math.max(1.2, Math.min(world.width - 2.2, playerPos.x));
-      playerPos.z = Math.max(1.2, Math.min(world.depth - 2.2, playerPos.z));
+      // Failsafe if player falls below world
       if (playerPos.y < 0) {
-        playerPos.set(safeSpawn.x, safeSpawn.y + 1, safeSpawn.z);
+        const safe = findSafeSurfaceSpawn(world, Math.floor(playerPos.x), Math.floor(playerPos.z));
+        playerPos.set(safe.x, safe.y + 1, safe.z);
         playerVel.set(0, 0, 0);
       }
 
-      // Smooth rotation towards target facing using shortest angular arc
+      // Smooth character facing
       let angleDiff = (targetFacingAngle - currentFacingAngle) % (Math.PI * 2);
       if (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
       if (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
@@ -1279,39 +1052,33 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       character.update(delta, isMoving, isRunning, !isGrounded, currentFacingAngle);
       character.setEquippedItem(activeItemRef.current);
 
-      // 5. Isometric Camera Positioning with Dynamic Elevation and Azimuth
-      // Auto-Rotate Camera to follow player's facing direction if enabled
-      if (autoRotateCameraRef.current && isMoving && !isMiddleDragging) {
-        // Desired camera azimuth: behind player looking forward in direction of movement
+      // Camera auto-rotate follow
+      const isMining = isMouseDown && mouseButton === 0;
+      if (autoRotateCameraRef.current && isMoving && !isMiddleDragging && !isMining) {
         const desiredCamAngle = currentFacingAngle + Math.PI;
         let camDiff = (desiredCamAngle - cameraAngleRef.current) % (Math.PI * 2);
         if (camDiff < -Math.PI) camDiff += Math.PI * 2;
         if (camDiff > Math.PI) camDiff -= Math.PI * 2;
 
-        const rotSpeed = 3.0;
-        const step = camDiff * Math.min(1, delta * rotSpeed);
+        const speedMultiplier = autoRotateSpeedRef.current === 'slow' ? 1.5 : autoRotateSpeedRef.current === 'fast' ? 4.8 : 2.8;
+        const step = camDiff * Math.min(1, delta * speedMultiplier);
         if (Math.abs(step) > 0.0001) {
           cameraAngleRef.current += step;
           onOrbitCamera?.(step);
         }
       }
 
-      // Animate Destination Marker and Path Line
+      // Animate Destination Marker
       if (destinationMarker.visible) {
         markerPulseTime += delta * 4.0;
         const pulseScale = 1.0 + Math.sin(markerPulseTime) * 0.12;
         markerRing.scale.set(pulseScale, 1, pulseScale);
         markerPillar.position.y = 0.72 + Math.sin(markerPulseTime * 0.8) * 0.12;
         markerPillar.rotation.y += delta * 2.5;
-
-        if (unreachableTimer > 0) {
-          unreachableTimer -= delta;
-          if (unreachableTimer <= 0) {
-            destinationMarker.visible = false;
-            pathLine.visible = false;
-          }
-        }
       }
+
+      // Camera Follow with smooth damping
+      cameraFocusPos.lerp(playerPos, 0.14);
 
       currentElevation = THREE.MathUtils.lerp(currentElevation, targetElevation, 0.15);
       const camElevation = currentElevation;
@@ -1323,29 +1090,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const camOffsetZ = Math.cos(camAngle) * Math.cos(camElevation) * camDistance;
 
       const targetCamPos = new THREE.Vector3(
-        playerPos.x + camOffsetX,
-        playerPos.y + camOffsetY,
-        playerPos.z + camOffsetZ
+        cameraFocusPos.x + camOffsetX,
+        cameraFocusPos.y + camOffsetY,
+        cameraFocusPos.z + camOffsetZ
       );
 
-      // Smooth camera damping
-      camera.position.lerp(targetCamPos, 0.12);
-      camera.lookAt(playerPos.x, playerPos.y + 0.6, playerPos.z);
+      camera.position.lerp(targetCamPos, 0.14);
+      camera.lookAt(cameraFocusPos.x, cameraFocusPos.y + 0.6, cameraFocusPos.z);
 
-      // 6. Day/Night Cycle & Atmospheric Lighting
+      // Day / Night Celestial Lighting
       const currentDayTime = dayTimeRef.current;
       const cycle = currentDayTime % 1.0;
-      // Cycle definition:
-      // 0.00 = Midnight (Sun at nadir, Moon at zenith)
-      // 0.25 = Sunrise / Dawn
-      // 0.50 = Noon (Sun at zenith)
-      // 0.75 = Sunset / Dusk
       const sunAngle = (cycle - 0.25) * Math.PI * 2;
       const sunCos = Math.cos(sunAngle);
       const sunSin = Math.sin(sunAngle);
 
-      // Sun position: rotates overhead in arc
-      const sunDistance = 50;
+      const sunDistance = 55;
       sunLight.position.set(
         playerPos.x + sunCos * sunDistance,
         playerPos.y + Math.max(14, sunSin * sunDistance),
@@ -1353,7 +1113,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       );
       sunLight.target.position.copy(playerPos);
 
-      // Moon position: opposite to sun
       moonLight.position.set(
         playerPos.x - sunCos * sunDistance,
         playerPos.y + Math.max(14, -sunSin * sunDistance),
@@ -1361,119 +1120,86 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       );
       moonLight.target.position.copy(playerPos);
 
-      // Celestial phases and atmospheric color palettes
       if (cycle >= 0.30 && cycle <= 0.68) {
-        // --- 1. FULL DAYTIME (Vibrant, warm, clear, crisp shadows) ---
+        // Daytime
         const dayProgress = (cycle - 0.30) / 0.38;
         const noonDist = 1 - Math.abs(dayProgress - 0.5) * 2;
-        const sunIntensity = 1.15 + noonDist * 0.25;
-
         sunLight.color.setHex(0xfffaec);
-        sunLight.intensity = sunIntensity;
+        sunLight.intensity = 1.15 + noonDist * 0.25;
         moonLight.intensity = 0;
-
         ambientLight.color.setHex(0xe8f0fa);
         ambientLight.intensity = 0.48;
-
         hemiLight.color.setHex(0x90caff);
         hemiLight.groundColor.setHex(0x526645);
         hemiLight.intensity = 0.42;
-
         scene.background = new THREE.Color(0x6eb5f0);
       } else if (cycle > 0.68 && cycle < 0.85) {
-        // --- 2. GOLDEN HOUR & VIBRANT SUNSET (User requested: color of sunset!) ---
+        // Sunset
         const t = (cycle - 0.68) / 0.17;
-
+        const subT = t * 2.0;
         if (t < 0.5) {
-          // Golden Hour into Vivid Orange Sunset
-          const subT = t * 2.0;
           sunLight.color.setRGB(1.0, THREE.MathUtils.lerp(0.85, 0.50, subT), THREE.MathUtils.lerp(0.50, 0.15, subT));
           sunLight.intensity = THREE.MathUtils.lerp(1.2, 0.85, subT);
           moonLight.intensity = 0;
-
           ambientLight.color.setHex(0xffc599);
           ambientLight.intensity = 0.45;
-
-          hemiLight.color.setHex(0xff9966); // rich warm sunset sky
-          hemiLight.groundColor.setHex(0x503340); // dusk purple earth
+          hemiLight.color.setHex(0xff9966);
+          hemiLight.groundColor.setHex(0x503340);
           hemiLight.intensity = 0.55;
-
-          // Sky color: golden orange into radiant sunset peach/crimson
-          const skyColor = new THREE.Color(0x6eb5f0).lerp(new THREE.Color(0xf67838), subT);
-          scene.background = skyColor;
+          scene.background = new THREE.Color(0x6eb5f0).lerp(new THREE.Color(0xf67838), subT);
         } else {
-          // Deep Sunset Dusk turning into Twilight Night
-          const subT = (t - 0.5) * 2.0;
-          sunLight.color.setRGB(THREE.MathUtils.lerp(1.0, 0.8, subT), THREE.MathUtils.lerp(0.4, 0.15, subT), THREE.MathUtils.lerp(0.2, 0.25, subT));
-          sunLight.intensity = THREE.MathUtils.lerp(0.85, 0.05, subT);
-
-          // Moon rises
+          const deepT = (t - 0.5) * 2.0;
+          sunLight.intensity = THREE.MathUtils.lerp(0.85, 0.05, deepT);
           moonLight.color.setHex(0x9ab8ff);
-          moonLight.intensity = THREE.MathUtils.lerp(0.0, 0.55, subT);
-
-          ambientLight.color.setRGB(THREE.MathUtils.lerp(0.9, 0.22, subT), THREE.MathUtils.lerp(0.6, 0.28, subT), THREE.MathUtils.lerp(0.5, 0.45, subT));
-          ambientLight.intensity = THREE.MathUtils.lerp(0.45, 0.40, subT);
-
-          hemiLight.color.setRGB(THREE.MathUtils.lerp(0.9, 0.28, subT), THREE.MathUtils.lerp(0.5, 0.42, subT), THREE.MathUtils.lerp(0.4, 0.65, subT));
-          hemiLight.groundColor.setHex(0x281c30);
+          moonLight.intensity = THREE.MathUtils.lerp(0.0, 0.55, deepT);
+          ambientLight.color.setHex(0x354b78);
+          ambientLight.intensity = 0.4;
+          hemiLight.color.setHex(0x486ca0);
+          hemiLight.groundColor.setHex(0x1a2438);
           hemiLight.intensity = 0.55;
-
-          // Sky color: crimson magenta into deep twilight indigo
-          const skyColor = new THREE.Color(0xf67838).lerp(new THREE.Color(0x181a38), subT);
-          scene.background = skyColor;
+          scene.background = new THREE.Color(0xf67838).lerp(new THREE.Color(0x0c152a), deepT);
         }
       } else if (cycle >= 0.85 || cycle < 0.15) {
-        // --- 3. LUMINOUS SAPPHIRE NIGHT (User requested: color of the night!) ---
+        // Night
         sunLight.intensity = 0;
         moonLight.color.setHex(0xa2c4ff);
         moonLight.intensity = 0.68;
-
-        ambientLight.color.setHex(0x354b78); // luminous cobalt ambient
+        ambientLight.color.setHex(0x354b78);
         ambientLight.intensity = 0.42;
-
-        hemiLight.color.setHex(0x486ca0); // moonlit sapphire sky
-        hemiLight.groundColor.setHex(0x1a2438); // deep obsidian cobalt ground
+        hemiLight.color.setHex(0x486ca0);
+        hemiLight.groundColor.setHex(0x1a2438);
         hemiLight.intensity = 0.55;
-
-        scene.background = new THREE.Color(0x0c152a); // starlit deep navy sky
+        scene.background = new THREE.Color(0x0c152a);
       } else {
-        // --- 4. ROSY DAWN / SUNRISE (cycle 0.15 to 0.30) ---
+        // Sunrise
         const t = (cycle - 0.15) / 0.15;
         moonLight.intensity = THREE.MathUtils.lerp(0.68, 0, t);
         sunLight.color.setHex(0xffc588);
         sunLight.intensity = THREE.MathUtils.lerp(0.1, 1.15, t);
-
-        ambientLight.color.setRGB(THREE.MathUtils.lerp(0.22, 0.9, t), THREE.MathUtils.lerp(0.28, 0.88, t), THREE.MathUtils.lerp(0.45, 0.95, t));
-        ambientLight.intensity = THREE.MathUtils.lerp(0.42, 0.48, t);
-
-        hemiLight.color.setRGB(THREE.MathUtils.lerp(0.3, 0.56, t), THREE.MathUtils.lerp(0.45, 0.79, t), THREE.MathUtils.lerp(0.65, 1.0, t));
-        hemiLight.groundColor.setHex(0x384030);
-        hemiLight.intensity = 0.48;
-
-        const skyColor = new THREE.Color(0x0c152a).lerp(new THREE.Color(0x6eb5f0), t);
-        scene.background = skyColor;
+        ambientLight.color.setHex(0xe8f0fa);
+        ambientLight.intensity = 0.48;
+        hemiLight.color.setHex(0x90caff);
+        hemiLight.groundColor.setHex(0x526645);
+        hemiLight.intensity = 0.42;
+        scene.background = new THREE.Color(0x0c152a).lerp(new THREE.Color(0x6eb5f0), t);
       }
 
-      // Player held torch or lantern lighting
+      // Torch illumination
       const holdsTorch = activeItemRef.current?.id === 'torch';
       const holdsLantern = activeItemRef.current?.id === 'lantern';
-      const isHoldingLight = holdsTorch || holdsLantern;
-
       playerLight.position.set(playerPos.x + 0.25, playerPos.y + 0.85, playerPos.z + 0.2);
-      if (isHoldingLight) {
+      if (holdsTorch || holdsLantern) {
         const flicker = Math.sin(time * 14) * 0.12 + Math.cos(time * 24) * 0.08;
         playerLight.color.setHex(holdsLantern ? 0xffdd66 : 0xff9933);
         playerLight.intensity = (holdsLantern ? 4.2 : 3.6) * (1.0 + flicker);
         playerLight.distance = holdsLantern ? 18 : 15;
-        playerLight.decay = 1.2;
       } else {
         playerLight.color.setHex(0xaaccee);
         playerLight.intensity = 0.25;
         playerLight.distance = 5;
-        playerLight.decay = 1.5;
       }
 
-      // Update nearest torches and lanterns from world.lightSources
+      // Nearest torches
       const nearestLights = [...world.lightSources]
         .map(ls => ({
           ls,
@@ -1487,10 +1213,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const { ls } = nearestLights[i];
           light.position.set(ls.x + 0.5, ls.y + 0.65, ls.z + 0.5);
           light.color.setHex(ls.color);
-          const flicker = Math.sin(time * 11 + ls.x * 2.7 + ls.z * 1.9) * 0.12 + Math.cos(time * 17 + ls.y * 3.3) * 0.08;
+          const flicker = Math.sin(time * 11 + ls.x * 2.7) * 0.12;
           light.intensity = (ls.intensity || 3.5) * (1.0 + flicker);
-          light.distance = 16;
-          light.decay = 1.2;
           light.visible = true;
         } else {
           light.intensity = 0;
@@ -1498,7 +1222,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // 7. Raycasting for Block Hover & Mining
+      // Raycast for hover & continuous mining
       raycaster.setFromCamera(mouseNDC, camera);
       currentHit = world.raycast(raycaster);
 
@@ -1509,7 +1233,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           highlightBox.visible = true;
           highlightBox.position.set(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5);
 
-          // Face cursor
           faceCursor.visible = true;
           const { x: nx, y: ny, z: nz } = currentHit.faceNormal;
           faceCursor.position.set(
@@ -1530,7 +1253,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             faceCursor.rotation.set(0, 0, 0);
           }
 
-          // Handle Mining while holding Left Mouse Button
+          // Survival Mining while holding Left Mouse Button
           if (isMouseDown && mouseButton === 0 && gameModeRef.current === 'survival') {
             const bx = currentHit.blockX;
             const by = currentHit.blockY;
@@ -1546,9 +1269,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             const toolTier = activeItemRef.current?.tier || 1;
             const toolType = activeItemRef.current?.toolType;
 
-            // Speed calculation: matching tools mine much faster
             let speedMultiplier = 1.0;
-            if (toolType === 'pickaxe' && (currentHit.blockType === BlockType.STONE || currentHit.blockType === BlockType.COAL_ORE || currentHit.blockType === BlockType.IRON_ORE)) {
+            if (toolType === 'pickaxe' && (currentHit.blockType === BlockType.STONE || currentHit.blockType === BlockType.COAL_ORE || currentHit.blockType === BlockType.IRON_ORE || currentHit.blockType === BlockType.GOLD_ORE || currentHit.blockType === BlockType.RUBY_ORE)) {
               speedMultiplier = 2.5 * toolTier;
             } else if (toolType === 'axe' && currentHit.blockType === BlockType.WOOD_LOG) {
               speedMultiplier = 3.0 * toolTier;
@@ -1563,13 +1285,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             crackMat.map = generateCrackTexture(crackStage);
             crackMat.needsUpdate = true;
 
-            // Occasional chipping sound
             if (Math.random() < 0.15) {
               sound.playMine();
             }
 
             if (miningProgress >= 1.0) {
-              // Block broken!
               const brokenType = world.breakBlock(bx, by, bz);
               sound.playBreak();
               crackMesh.visible = false;
@@ -1607,22 +1327,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         crackMesh.visible = false;
       }
 
-      // 8. Update Mobs, AI, and Item Drops collection
+      // Mobs & Drops Update
       const collected = mobManager.update(
         delta,
         playerPos,
         world,
         (dmg, mobName, mobX, mobZ) => {
-          // If dead, shielded by i-frames, or creative mode, ignore incoming damage
           if (isDeadRef.current || invulnerableTimer > 0 || gameModeRef.current === 'creative') {
             return;
           }
 
-          // Trigger invulnerability frame
           invulnerableTimer = 0.85;
           character.triggerHurt();
 
-          // Calculate armor reduction
           const armorTier = customization.armorTier;
           const armorReduction =
             armorTier === 'ruby' ? 3 :
@@ -1631,7 +1348,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             armorTier === 'leather' ? 1 : 0;
           const finalDmg = Math.max(1, dmg - armorReduction);
 
-          // Knock player back slightly away from mob
           const kx = playerPos.x - mobX;
           const kz = playerPos.z - mobZ;
           const kLen = Math.sqrt(kx * kx + kz * kz) || 1;
@@ -1656,13 +1372,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         gameModeRef.current === 'creative'
       );
 
-      // Add collected items into player inventory
       if (collected.length > 0) {
         setInventory(prev => {
           const newInv = [...prev];
           collected.forEach(drop => {
             addFloatingText(`+${drop.count} ${drop.name}`, playerPos.x, playerPos.y + 1.2, playerPos.z, '#44ff88');
-
             const existing = newInv.find(it => it.id === drop.id && it.count < it.maxStack);
             if (existing) {
               existing.count += drop.count;
@@ -1674,7 +1388,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         });
       }
 
-      // 9. Render Scene
       renderer.render(scene, camera);
     };
 
@@ -1699,7 +1412,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
   }, []);
 
-  // Update live character customization dynamically without reloading the entire world
   useEffect(() => {
     if (characterRef.current) {
       characterRef.current.updateCustomization(customization);
@@ -1709,7 +1421,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full cursor-crosshair overflow-hidden select-none"
+      className="relative w-full h-full cursor-crosshair overflow-hidden select-none pixelated"
     />
   );
 };

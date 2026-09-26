@@ -1,12 +1,18 @@
 @import "tailwindcss";
 
 @layer base {
+  * {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+  }
+
   body {
     user-select: none;
     -webkit-user-select: none;
     overflow: hidden;
-    background-color: #1a1a24;
-    font-family: 'Chakra Petch', system-ui, -apple-system, sans-serif;
+    background-color: #120e0a;
+    font-family: 'Press Start 2P', monospace;
   }
 }
 
@@ -15,7 +21,7 @@
 }
 
 .font-rpg {
-  font-family: 'Chakra Petch', sans-serif;
+  font-family: 'Press Start 2P', monospace;
 }
 
 .pixelated {
@@ -24,21 +30,133 @@
   image-rendering: crisp-edges;
 }
 
-/* Custom retro scrollbar */
+/* 8-bit Chunky Pixel UI Panels & Borders */
+.pixel-box-wood {
+  background-color: #2e1f14;
+  border: 4px solid #160e09;
+  box-shadow: inset 3px 3px 0px #5c4129, inset -3px -3px 0px #140d07, 0 6px 0px rgba(0, 0, 0, 0.7);
+}
+
+.pixel-box-stone {
+  background-color: #2b2e35;
+  border: 4px solid #14161a;
+  box-shadow: inset 3px 3px 0px #4e535f, inset -3px -3px 0px #101215, 0 6px 0px rgba(0, 0, 0, 0.7);
+}
+
+.pixel-box-slot {
+  background-color: #18120c;
+  border: 3px solid #100b07;
+  box-shadow: inset 2px 2px 0px #0a0704, inset -2px -2px 0px #38291a;
+}
+
+.pixel-box-slot-active {
+  background-color: #3b2a1a;
+  border: 3px solid #eab308;
+  box-shadow: inset 2px 2px 0px #fde047, inset -2px -2px 0px #854d0e, 0 0 10px rgba(234, 179, 8, 0.6);
+}
+
+/* 8-bit Retro Chunky Buttons */
+.pixel-btn-wood {
+  background-color: #4a3422;
+  border: 3px solid #1c130c;
+  box-shadow: inset 2px 2px 0px #7a5839, inset -2px -2px 0px #241910, 0 3px 0px #0f0a06;
+  color: #f5eedc;
+  transition: transform 0.05s ease;
+}
+
+.pixel-btn-wood:hover {
+  background-color: #5c412a;
+}
+
+.pixel-btn-wood:active {
+  transform: translateY(2px);
+  box-shadow: inset 2px 2px 0px #241910, inset -2px -2px 0px #7a5839, 0 1px 0px #0f0a06;
+}
+
+.pixel-btn-stone {
+  background-color: #3f444e;
+  border: 3px solid #181a1e;
+  box-shadow: inset 2px 2px 0px #636b7b, inset -2px -2px 0px #202328, 0 3px 0px #0e0f12;
+  color: #e5e7eb;
+  transition: transform 0.05s ease;
+}
+
+.pixel-btn-stone:hover {
+  background-color: #4d535f;
+}
+
+.pixel-btn-stone:active {
+  transform: translateY(2px);
+  box-shadow: inset 2px 2px 0px #202328, inset -2px -2px 0px #636b7b, 0 1px 0px #0e0f12;
+}
+
+.pixel-btn-gold {
+  background-color: #c98a1a;
+  border: 3px solid #4a3106;
+  box-shadow: inset 2px 2px 0px #ffd059, inset -2px -2px 0px #7a5009, 0 3px 0px #291b03;
+  color: #1c1305;
+  transition: transform 0.05s ease;
+}
+
+.pixel-btn-gold:hover {
+  background-color: #db9820;
+}
+
+.pixel-btn-gold:active {
+  transform: translateY(2px);
+  box-shadow: inset 2px 2px 0px #7a5009, inset -2px -2px 0px #ffd059, 0 1px 0px #291b03;
+}
+
+.pixel-btn-green {
+  background-color: #276f2f;
+  border: 3px solid #0f2d13;
+  box-shadow: inset 2px 2px 0px #4cd95b, inset -2px -2px 0px #16431c, 0 3px 0px #08170a;
+  color: #f0fdf4;
+  transition: transform 0.05s ease;
+}
+
+.pixel-btn-green:hover {
+  background-color: #318a3b;
+}
+
+.pixel-btn-green:active {
+  transform: translateY(2px);
+  box-shadow: inset 2px 2px 0px #16431c, inset -2px -2px 0px #4cd95b, 0 1px 0px #08170a;
+}
+
+.pixel-btn-danger {
+  background-color: #991b1b;
+  border: 3px solid #450a0a;
+  box-shadow: inset 2px 2px 0px #f87171, inset -2px -2px 0px #5c0f0f, 0 3px 0px #260505;
+  color: #fef2f2;
+  transition: transform 0.05s ease;
+}
+
+.pixel-btn-danger:hover {
+  background-color: #b91c1c;
+}
+
+.pixel-btn-danger:active {
+  transform: translateY(2px);
+  box-shadow: inset 2px 2px 0px #5c0f0f, inset -2px -2px 0px #f87171, 0 1px 0px #260505;
+}
+
+/* Custom 8-bit retro scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e1e2f;
+  background: #18120c;
+  border: 2px solid #0a0704;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #4b5563;
-  border-radius: 3px;
+  background: #5c4129;
+  border: 2px solid #2e1f14;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
+  background: #7a5839;
 }

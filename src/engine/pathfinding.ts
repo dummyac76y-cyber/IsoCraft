@@ -82,14 +82,14 @@ class PriorityQueue<T> {
 }
 
 /**
- * Checks if a tile is walkable at standing foot level y:
+ * Checks if a tile is walkable at standing foot level y in the infinite voxel world:
  * - Solid ground beneath (y - 1)
  * - Ground is NOT water
  * - Clearance at feet (y) and head (y + 1)
  * - Neither feet nor head are inside water or solid blocks
  */
 export function isTileWalkable(world: VoxelWorld, x: number, y: number, z: number): boolean {
-  if (x < 0 || x >= world.width || z < 0 || z >= world.depth || y < 1 || y >= world.height - 1) {
+  if (y < 1 || y >= world.height - 1) {
     return false;
   }
 
@@ -133,10 +133,6 @@ export function findGroundHeight(
   z: number,
   approxY?: number
 ): number | null {
-  if (x < 0 || x >= world.width || z < 0 || z >= world.depth) {
-    return null;
-  }
-
   const searchY = approxY !== undefined ? Math.round(approxY) : Math.floor(world.height / 2);
   const minSearch = Math.max(1, searchY - 6);
   const maxSearch = Math.min(world.height - 2, searchY + 6);
@@ -148,7 +144,7 @@ export function findGroundHeight(
     }
   }
 
-  // Broad search from top down if local search yielded no result
+  // Broad search from top down
   for (let y = world.height - 2; y >= 1; y--) {
     if (isTileWalkable(world, x, y, z)) {
       return y;
@@ -160,11 +156,6 @@ export function findGroundHeight(
 
 /**
  * Find valid walkable neighbors for A* from current node
- * Supports:
- * - Flat movement
- * - Step-up 1 block (stairs / slopes / blocks)
- * - Step-down 1 or 2 blocks (stairs / drops)
- * - 8-directional movement with diagonal corner-cutting prevention
  */
 function getNeighbors(
   world: VoxelWorld,
@@ -189,11 +180,7 @@ function getNeighbors(
     const nx = current.x + dir.dx;
     const nz = current.z + dir.dz;
 
-    if (nx < 0 || nx >= world.width || nz < 0 || nz >= world.depth) {
-      continue;
-    }
-
-    // Diagonal corner clearance check: ensure both cardinal sides are passable
+    // Diagonal corner clearance check
     if (dir.diagonal) {
       const card1Solid =
         world.isSolid(current.x + dir.dx, current.y, current.z) ||
@@ -201,46 +188,37 @@ function getNeighbors(
       const card2Solid =
         world.isSolid(current.x, current.y, current.z + dir.dz) ||
         world.isSolid(current.x, current.y + 1, current.z + dir.dz);
-      if (card1Solid || card2Solid) {
+
+      if (card1Solid && card2Solid) {
         continue;
       }
     }
 
-    // Check possible elevation transitions:
-    // 1. Same elevation (y)
-    // 2. Step up 1 block (y + 1)
-    // 3. Step down 1 block (y - 1)
-    // 4. Step down 2 blocks (y - 2)
-    const elevationCandidates = [
-      { y: current.y, extraCost: 0 },
-      { y: current.y + 1, extraCost: 0.3 },
-      { y: current.y - 1, extraCost: 0.2 },
-      { y: current.y - 2, extraCost: 0.5 }
+    // Elevation transitions: Flat (dy=0), Step-up (dy=+1), Step-down (dy=-1, dy=-2)
+    const heightCandidates = [
+      { dy: 0, extraCost: 0 },
+      { dy: 1, extraCost: 0.3 },
+      { dy: -1, extraCost: 0.15 },
+      { dy: -2, extraCost: 0.4 }
     ];
 
-    for (const cand of elevationCandidates) {
-      const ny = cand.y;
-
-      // When stepping up 1 block, check player doesn't hit ceiling at current.y + 2
-      if (ny > current.y) {
-        if (world.isSolid(current.x, current.y + 2, current.z)) {
-          continue;
-        }
-      }
-
-      // When stepping down, ensure clearance above the destination block
-      if (ny < current.y) {
-        if (world.isSolid(nx, current.y, nz) || world.isSolid(nx, current.y + 1, nz)) {
-          continue;
-        }
-      }
+    for (const cand of heightCandidates) {
+      const ny = current.y + cand.dy;
+      if (ny < 1 || ny >= world.height - 1) continue;
 
       if (isTileWalkable(world, nx, ny, nz)) {
+        // Overhead clearance for step-ups
+        if (cand.dy === 1) {
+          if (world.isSolid(current.x, current.y + 2, current.z)) {
+            continue;
+          }
+        }
+
         neighbors.push({
           node: { x: nx, y: ny, z: nz },
           cost: dir.cost + cand.extraCost
         });
-        break; // Take the primary valid height candidate for this tile
+        break;
       }
     }
   }
@@ -259,15 +237,18 @@ function heuristic(a: PathNode, b: PathNode): number {
 }
 
 /**
- * Calculates A* path from start coordinate to target coordinate in the voxel world.
- * Returns smoothed list of world centered waypoints, or null if no valid path.
+ * Calculates A* path from start coordinate to target coordinate in the infinite voxel world.
+ * If target is unreachable, intelligently navigates to closest reachable position.
  */
 export function calculatePath(
   world: VoxelWorld,
   startPos: { x: number; y: number; z: number },
   targetPos: { x: number; y: number; z: number },
-  maxIterations: number = 2200
+  maxIterations: number = 2200,
+  recurseCount: number = 0
 ): PathPoint[] | null {
+  if (recurseCount > 1) return null;
+
   const startTileX = Math.floor(startPos.x);
   const startTileZ = Math.floor(startPos.z);
   const startGroundY = findGroundHeight(world, startTileX, startTileZ, startPos.y);
@@ -278,9 +259,15 @@ export function calculatePath(
 
   const targetTileX = Math.floor(targetPos.x);
   const targetTileZ = Math.floor(targetPos.z);
-  const targetGroundY = findGroundHeight(world, targetTileX, targetTileZ, targetPos.y);
+  let targetGroundY = findGroundHeight(world, targetTileX, targetTileZ, targetPos.y);
 
+  // If exact target block is not walkable (e.g. wall, tree trunk, water), find adjacent walkable spot
   if (targetGroundY === null) {
+    if (recurseCount > 0) return null;
+    const adj = findAdjacentWalkableSpot(world, targetTileX, targetPos.y, targetTileZ, startPos);
+    if (adj) {
+      return calculatePath(world, startPos, adj, maxIterations, recurseCount + 1);
+    }
     return null;
   }
 
@@ -319,14 +306,14 @@ export function calculatePath(
     const current = openSet.pop()!;
     const currentK = nodeKey(current);
 
-    // Goal reached?
+    // Goal reached
     if (current.x === targetNode.x && current.z === targetNode.z && Math.abs(current.y - targetNode.y) <= 1) {
       return reconstructPath(cameFrom, current);
     }
 
     closedSet.add(currentK);
 
-    // Track closest reached node for fallback if target cannot be exactly reached
+    // Track closest reached node for fallback if target cannot be reached exactly
     const distToTarget = heuristic(current, targetNode);
     if (distToTarget < closestDist) {
       closestDist = distToTarget;
@@ -352,8 +339,8 @@ export function calculatePath(
     }
   }
 
-  // If exact target unreachable, check if we got very close (e.g. within 1 tile of target)
-  if (closestDist <= 1.8 && closestNode !== startNode) {
+  // Fallback: If exact target unreachable, intelligently move to closest reachable position
+  if (closestNode !== startNode && cameFrom.has(nodeKey(closestNode))) {
     return reconstructPath(cameFrom, closestNode);
   }
 
@@ -376,14 +363,12 @@ function reconstructPath(
     path.unshift(curr);
   }
 
-  // Convert to world coordinates
   const waypoints: PathPoint[] = path.map(n => ({
     x: n.x + 0.5,
     y: n.y,
     z: n.z + 0.5
   }));
 
-  // Line-of-sight smoothing: remove redundant intermediary collinear waypoints at same elevation
   if (waypoints.length <= 2) return waypoints;
 
   const smoothed: PathPoint[] = [waypoints[0]];
@@ -391,24 +376,35 @@ function reconstructPath(
 
   while (idx < waypoints.length - 1) {
     let nextIdx = idx + 1;
+    for (let checkIdx = Math.min(waypoints.length - 1, idx + 4); checkIdx > idx + 1; checkIdx--) {
+      // Check if intermediate points are at same elevation and collinear
+      let canSkip = true;
+      const startP = waypoints[idx];
+      const endP = waypoints[checkIdx];
 
-    // Check if we can skip intermediate waypoints that form straight horizontal lines
-    for (let checkIdx = idx + 2; checkIdx < waypoints.length && checkIdx <= idx + 4; checkIdx++) {
-      const p1 = waypoints[idx];
-      const p2 = waypoints[checkIdx];
-
-      // Same elevation
-      if (Math.abs(p1.y - p2.y) < 0.05) {
-        // Collinear along X or Z or exact diagonal
-        const dx = p2.x - p1.x;
-        const dz = p2.z - p1.z;
-        const isCollinearX = Math.abs(dz) < 0.01;
-        const isCollinearZ = Math.abs(dx) < 0.01;
-        const isDiagonal = Math.abs(Math.abs(dx) - Math.abs(dz)) < 0.01;
-
-        if (isCollinearX || isCollinearZ || isDiagonal) {
-          nextIdx = checkIdx;
+      if (startP.y !== endP.y) {
+        canSkip = false;
+      } else {
+        const dx = endP.x - startP.x;
+        const dz = endP.z - startP.z;
+        const len = Math.hypot(dx, dz);
+        for (let mid = idx + 1; mid < checkIdx; mid++) {
+          const midP = waypoints[mid];
+          if (midP.y !== startP.y) {
+            canSkip = false;
+            break;
+          }
+          const cross = Math.abs((midP.x - startP.x) * dz - (midP.z - startP.z) * dx) / len;
+          if (cross > 0.3) {
+            canSkip = false;
+            break;
+          }
         }
+      }
+
+      if (canSkip) {
+        nextIdx = checkIdx;
+        break;
       }
     }
 
@@ -435,7 +431,6 @@ export function findAdjacentWalkableSpot(
 
   const candidates: Array<{ x: number; y: number; z: number; dist: number }> = [];
 
-  // Search 8 adjacent tiles around target
   const offsets = [
     { dx: 1, dz: 0 },
     { dx: -1, dz: 0 },
@@ -462,7 +457,6 @@ export function findAdjacentWalkableSpot(
     return null;
   }
 
-  // Sort by closest to player
   candidates.sort((a, b) => a.dist - b.dist);
   return { x: candidates[0].x, y: candidates[0].y, z: candidates[0].z };
 }

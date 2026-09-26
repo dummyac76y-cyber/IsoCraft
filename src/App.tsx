@@ -9,7 +9,6 @@ import { DeathModal } from './components/DeathModal';
 import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, BlockType } from './types';
 import { VoxelWorld } from './engine/world';
 import { sound } from './engine/sound';
-import { textureRegistry } from './engine/textures';
 
 export default function App() {
   // --- Character Customization State ---
@@ -62,7 +61,7 @@ export default function App() {
       blockType: BlockType.TORCH,
       count: 16,
       maxStack: 64,
-      description: 'Illuminates caves and dark isometric nights'
+      description: 'Illuminates dark isometric nights and caverns'
     },
     {
       id: 'stone_bricks',
@@ -80,7 +79,7 @@ export default function App() {
       count: 4,
       maxStack: 16,
       healAmount: 6,
-      description: 'Restores 6 HP when used'
+      description: 'Restores 6 HP when consumed'
     }
   ]);
 
@@ -104,16 +103,54 @@ export default function App() {
   const [cameraAngle, setCameraAngle] = useState<number>(Math.PI / 4); // 45 degrees isometric
   const [zoomLevel, setZoomLevel] = useState<number>(20);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+
+  // Auto-Rotate Settings
   const [autoRotateCamera, setAutoRotateCamera] = useState<boolean>(() => {
     const saved = localStorage.getItem('blocky_auto_rotate_camera');
     return saved !== null ? saved === 'true' : false;
   });
 
+  const [autoRotateSpeed, setAutoRotateSpeed] = useState<'slow' | 'normal' | 'fast'>('normal');
+
   const handleToggleAutoRotateCamera = () => {
     setAutoRotateCamera(prev => {
       const next = !prev;
       localStorage.setItem('blocky_auto_rotate_camera', String(next));
-      addFloatingText(next ? 'Auto-Rotate Camera: ON' : 'Auto-Rotate Camera: OFF', 0, 0, 0, next ? '#38e1ff' : '#a8a29e');
+      addFloatingText(next ? 'Auto-Rotate: ON' : 'Auto-Rotate: OFF', 0, 0, 0, next ? '#facc15' : '#a8a29e');
+      return next;
+    });
+  };
+
+  const handleCycleAutoRotateSpeed = () => {
+    setAutoRotateSpeed(prev => {
+      const next = prev === 'slow' ? 'normal' : prev === 'normal' ? 'fast' : 'slow';
+      addFloatingText(`Rotate Speed: ${next.toUpperCase()}`, 0, 0, 0, '#fbbf24');
+      return next;
+    });
+  };
+
+  // Vision Dynamic Occlusion Setting (100% -> 85% -> 70% -> 50%)
+  const [visionOpacity, setVisionOpacity] = useState<number>(0.85);
+
+  const handleCycleVisionOpacity = () => {
+    setVisionOpacity(prev => {
+      const next = prev >= 0.95 ? 0.85 : prev >= 0.80 ? 0.70 : prev >= 0.65 ? 0.50 : 1.0;
+      const label =
+        next >= 0.95 ? 'VISION: 100% (Maximum)' :
+        next >= 0.80 ? 'VISION: 85% (Normal)' :
+        next >= 0.65 ? 'VISION: 70% (Reduced)' : 'VISION: 50% (Minimal)';
+      sound.playMine(0.4);
+      addFloatingText(label, 0, 0, 0, '#38bdf8');
+      return next;
+    });
+  };
+
+  // Mobile Touch Shift-Mode Toggle (for touch pathfinding)
+  const [touchShiftMode, setTouchShiftMode] = useState<boolean>(false);
+  const handleToggleTouchShiftMode = () => {
+    setTouchShiftMode(prev => {
+      const next = !prev;
+      addFloatingText(next ? 'Shift-Path Mode: ON' : 'Shift-Path Mode: OFF', 0, 0, 0, next ? '#38bdf8' : '#a8a29e');
       return next;
     });
   };
@@ -134,7 +171,7 @@ export default function App() {
   // --- Floating Text Overlay ---
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
 
-  // Voxel World Reference
+  // Infinite Voxel World Reference
   const worldRef = useRef<VoxelWorld | null>(null);
 
   // Sync mute state with sound engine
@@ -142,7 +179,7 @@ export default function App() {
     sound.setMuted(isMuted);
   }, [isMuted]);
 
-  // Day/Night progression clock (in survival mode)
+  // Day/Night progression clock
   useEffect(() => {
     const timer = setInterval(() => {
       setDayTime(prev => (prev + 0.001) % 1);
@@ -150,10 +187,9 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Hotkey listener for inventory, customizer, hotbar slots 1-9, and Q/E/R camera controls
+  // Hotkey listener for inventory, customizer, hotbar slots 1-9, Q/E/R, and +/- zoom
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input or player is dead
       if (isDead) return;
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
 
@@ -172,6 +208,10 @@ export default function App() {
         setIsCustomizerOpen(prev => !prev);
       } else if (e.code === 'KeyH') {
         setIsHelpOpen(prev => !prev);
+      } else if (e.code === 'Equal' || e.code === 'NumpadAdd') {
+        handleZoom(-3);
+      } else if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
+        handleZoom(3);
       } else if (e.code.startsWith('Digit')) {
         const num = parseInt(e.code.replace('Digit', ''));
         if (num >= 1 && num <= 9) {
@@ -215,21 +255,6 @@ export default function App() {
     setRespawnCount(c => c + 1);
   };
 
-  // Block Vision Transparency State & Toggle (Default: 0.85 slightly transparent)
-  const [blockOpacity, setBlockOpacity] = useState<number>(0.85);
-
-  const handleToggleBlockOpacity = () => {
-    setBlockOpacity(prev => {
-      // Cycle: 0.85 (Translucent) -> 0.65 (Glassy) -> 1.0 (Opaque)
-      const next = prev === 0.85 ? 0.65 : prev === 0.65 ? 1.0 : 0.85;
-      textureRegistry.setBlockOpacity(next);
-      const label = next === 0.85 ? 'Translucent (85%)' : next === 0.65 ? 'Glassy X-Ray (65%)' : 'Solid Opaque (100%)';
-      sound.playMine(0.4);
-      addFloatingText(`Blocks: ${label}`, 0, 0, 0, '#38bdf8');
-      return next;
-    });
-  };
-
   // Add floating text
   const addFloatingText = (text: string, x: number, y: number, z: number, color: string) => {
     const id = `ft_${Date.now()}_${Math.random()}`;
@@ -250,27 +275,25 @@ export default function App() {
     }, 1200);
   };
 
-  // Camera Rotation (discrete 45-degree steps)
+  // Camera Rotation
   const handleRotateCamera = (dir: number) => {
     setCameraAngle(prev => prev + (dir * Math.PI) / 4);
     sound.playMine(0.5);
   };
 
-  // Camera Orbit (continuous smooth drag)
   const handleOrbitCamera = (deltaAngle: number) => {
     setCameraAngle(prev => prev + deltaAngle);
   };
 
-  // Reset Camera to standard isometric 2.5D view
   const handleResetCamera = () => {
     setCameraAngle(Math.PI / 4);
     setZoomLevel(20);
     sound.playMine(0.8);
   };
 
-  // Zoom Handler
+  // Zoom Handler (zoomLevel 10 = close 200%, 20 = 100%, 45 = wide 45%)
   const handleZoom = (delta: number) => {
-    setZoomLevel(prev => Math.max(12, Math.min(36, prev + delta)));
+    setZoomLevel(prev => Math.max(10, Math.min(45, prev + delta)));
   };
 
   // Open Chest Modal
@@ -301,8 +324,8 @@ export default function App() {
   const isAnyModalOpen = isInventoryOpen || isCustomizerOpen || isWorldModalOpen || isHelpOpen || isDead;
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-stone-950 font-rpg select-none">
-      {/* 3D Three.js Isometric Voxel Game Canvas */}
+    <div className="relative w-screen h-screen overflow-hidden bg-[#120e0a] font-pixel select-none pixelated">
+      {/* 3D Three.js Infinite Voxel Sandbox Canvas */}
       <GameCanvas
         customization={customization}
         activeItem={activeItem}
@@ -326,10 +349,13 @@ export default function App() {
         onOrbitCamera={handleOrbitCamera}
         onResetCamera={handleResetCamera}
         autoRotateCamera={autoRotateCamera}
+        autoRotateSpeed={autoRotateSpeed}
+        blockOpacity={visionOpacity}
         onZoom={handleZoom}
+        touchShiftMode={touchShiftMode}
       />
 
-      {/* Retro 32-bit Heads-Up Display (HUD) */}
+      {/* Retro 8-bit Heads-Up Display (HUD) */}
       <HUD
         playerStats={playerStats}
         inventory={inventory}
@@ -345,8 +371,11 @@ export default function App() {
         onResetCamera={handleResetCamera}
         autoRotateCamera={autoRotateCamera}
         onToggleAutoRotateCamera={handleToggleAutoRotateCamera}
-        blockOpacity={blockOpacity}
-        onToggleBlockOpacity={handleToggleBlockOpacity}
+        autoRotateSpeed={autoRotateSpeed}
+        onCycleAutoRotateSpeed={handleCycleAutoRotateSpeed}
+        visionOpacity={visionOpacity}
+        onCycleVisionOpacity={handleCycleVisionOpacity}
+        zoomLevel={zoomLevel}
         onZoom={handleZoom}
         onOpenInventory={() => {
           setIsInventoryOpen(true);
@@ -356,17 +385,19 @@ export default function App() {
         onOpenCustomizer={() => setIsCustomizerOpen(true)}
         onOpenWorldModal={() => setIsWorldModalOpen(true)}
         onOpenHelp={() => setIsHelpOpen(true)}
+        touchShiftMode={touchShiftMode}
+        onToggleTouchShiftMode={handleToggleTouchShiftMode}
       />
 
-      {/* Floating Damage / Loot Notifications */}
+      {/* Floating 8-bit Notifications */}
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
         {floatingTexts.map(ft => (
           <div
             key={ft.id}
-            className="absolute font-pixel text-sm font-bold animate-bounce drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]"
+            className="absolute font-pixel text-xs sm:text-sm font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,1)] uppercase"
             style={{
               color: ft.color,
-              transform: 'translateY(-20px)'
+              transform: 'translateY(-24px)'
             }}
           >
             {ft.text}
@@ -395,7 +426,7 @@ export default function App() {
         onHealPlayer={handleHealPlayer}
       />
 
-      {/* Character Style Wardrobe Modal */}
+      {/* Character Wardrobe Modal */}
       <CharacterModal
         isOpen={isCustomizerOpen}
         onClose={() => setIsCustomizerOpen(false)}
@@ -403,23 +434,23 @@ export default function App() {
         setCustomization={setCustomization}
       />
 
-      {/* World Generator & Presets Modal */}
+      {/* Infinite World Generator Modal */}
       <WorldModal
         isOpen={isWorldModalOpen}
         onClose={() => setIsWorldModalOpen(false)}
         worldRef={worldRef}
         onWorldRegenerated={() => {
-          addFloatingText('Realm Re-forged!', 0, 0, 0, '#fbbf24');
+          addFloatingText('Infinite Realm Forged!', 0, 0, 0, '#fbbf24');
         }}
       />
 
-      {/* Controls & Instructions Modal */}
+      {/* Guide & Controls Modal */}
       <HelpModal
         isOpen={isHelpOpen}
         onClose={() => setIsHelpOpen(false)}
       />
 
-      {/* Player Death & Game Over Modal */}
+      {/* Player Death Modal */}
       <DeathModal
         isOpen={isDead}
         deathCause={deathCause}

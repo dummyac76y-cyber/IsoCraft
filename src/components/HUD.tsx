@@ -1,5 +1,5 @@
-import React from 'react';
-import { Heart, Shield, Compass, RotateCcw, RotateCw, ZoomIn, ZoomOut, Sun, Moon, Volume2, VolumeX, Backpack, User, Map, HelpCircle, Pickaxe, Camera, Eye } from 'lucide-react';
+import React, { useState } from 'react';
+import { Heart, Compass, RotateCcw, RotateCw, ZoomIn, ZoomOut, Sun, Moon, Volume2, VolumeX, Backpack, User, Map, HelpCircle, Eye, RefreshCw, Footprints, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { PlayerStats, Item, GameMode } from '../types';
 
 interface HUDProps {
@@ -17,13 +17,18 @@ interface HUDProps {
   onResetCamera?: () => void;
   autoRotateCamera?: boolean;
   onToggleAutoRotateCamera?: () => void;
-  blockOpacity?: number;
-  onToggleBlockOpacity?: () => void;
+  autoRotateSpeed?: 'slow' | 'normal' | 'fast';
+  onCycleAutoRotateSpeed?: () => void;
+  visionOpacity?: number;
+  onCycleVisionOpacity?: () => void;
+  zoomLevel?: number;
   onZoom: (delta: number) => void;
   onOpenInventory: () => void;
   onOpenCustomizer: () => void;
   onOpenWorldModal: () => void;
   onOpenHelp: () => void;
+  touchShiftMode?: boolean;
+  onToggleTouchShiftMode?: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -41,14 +46,21 @@ export const HUD: React.FC<HUDProps> = ({
   onResetCamera,
   autoRotateCamera = false,
   onToggleAutoRotateCamera,
-  blockOpacity = 0.85,
-  onToggleBlockOpacity,
+  autoRotateSpeed = 'normal',
+  onCycleAutoRotateSpeed,
+  visionOpacity = 0.85,
+  onCycleVisionOpacity,
+  zoomLevel = 20,
   onZoom,
   onOpenInventory,
   onOpenCustomizer,
   onOpenWorldModal,
-  onOpenHelp
+  onOpenHelp,
+  touchShiftMode = false,
+  onToggleTouchShiftMode
 }) => {
+  const [showMobileControls, setShowMobileControls] = useState<boolean>(false);
+
   // Hotbar takes first 9 slots of inventory
   const hotbarItems = Array(9).fill(null).map((_, i) => inventory[i] || null);
   const activeItem = hotbarItems[activeSlot];
@@ -57,39 +69,48 @@ export const HUD: React.FC<HUDProps> = ({
   const maxHearts = Math.ceil(playerStats.maxHp / 2);
   const currentHearts = playerStats.hp / 2;
 
-  // Day/night representation
+  // Day/night
   const isNight = dayTime < 0.25 || dayTime > 0.75;
 
+  // Zoom percentage display (zoomLevel 20 = 100%, 12 = 150%, 36 = 50%)
+  const zoomPercent = Math.round((20 / zoomLevel) * 100);
+
+  // Vision label
+  const visionPercent = Math.round(visionOpacity * 100);
+
   return (
-    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-4 z-10">
-      {/* Top Bar: Stats & Controls */}
-      <div className="flex items-start justify-between w-full">
-        {/* Player Status Panel (RPG 32-bit pixel aesthetic) */}
-        <div className="pointer-events-auto bg-gray-950/85 backdrop-blur-md border-2 border-stone-700/80 rounded-xl p-3 shadow-2xl flex flex-col gap-2 min-w-[260px]">
-          <div className="flex items-center justify-between border-b border-stone-800 pb-2">
+    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-3 sm:p-4 z-10 font-pixel select-none">
+      {/* Top Bar: Character Status & Quick Controls */}
+      <div className="flex items-start justify-between w-full gap-2">
+        {/* Player Status Panel (8-bit Wood & Stone Frame) */}
+        <div className="pointer-events-auto pixel-box-wood p-3 flex flex-col gap-2 min-w-[240px] sm:min-w-[280px]">
+          {/* Header Row: Level + Name + Time */}
+          <div className="flex items-center justify-between border-b-2 border-[#160e09] pb-2">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-emerald-600/30 border border-emerald-500/60 flex items-center justify-center font-pixel text-xs text-emerald-400 font-bold shadow-inner">
+              <div className="w-7 h-7 bg-[#1c130c] border-2 border-[#5c4129] flex items-center justify-center text-[10px] text-[#facc15] font-bold">
                 {playerStats.level}
               </div>
               <div>
-                <div className="text-xs font-pixel text-stone-200 uppercase tracking-wider">Adventurer</div>
-                <div className="text-[10px] text-stone-400">Lvl {playerStats.level} • {gameMode === 'creative' ? 'Creative' : 'Survival'}</div>
+                <div className="text-[10px] text-[#f5eedc] uppercase">HERO LV.{playerStats.level}</div>
+                <div className="text-[8px] text-[#c49a6c]">
+                  {gameMode === 'creative' ? 'CREATIVE' : 'SURVIVAL'}
+                </div>
               </div>
             </div>
 
-            {/* Time of Day Widget */}
+            {/* Time of Day */}
             <button
               onClick={() => setDayTime(prev => (prev + 0.25) % 1)}
-              title="Click to advance time"
-              className="flex items-center gap-1 px-2 py-1 bg-stone-900/90 hover:bg-stone-800 border border-stone-700 rounded text-[11px] text-amber-300 font-mono transition"
+              title="Click to advance time (Dawn / Noon / Dusk / Night)"
+              className="pixel-btn-wood px-2 py-1 flex items-center gap-1.5 text-[9px]"
             >
-              {isNight ? <Moon className="w-3.5 h-3.5 text-indigo-400" /> : <Sun className="w-3.5 h-3.5 text-amber-400" />}
+              {isNight ? <Moon className="w-3 h-3 text-[#93c5fd]" /> : <Sun className="w-3 h-3 text-[#fbbf24]" />}
               <span>{Math.floor(dayTime * 24).toString().padStart(2, '0')}:00</span>
             </button>
           </div>
 
           {/* Hearts Bar */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-wrap">
             {Array.from({ length: maxHearts }).map((_, idx) => {
               const heartFill = currentHearts - idx;
               const isFull = heartFill >= 1;
@@ -97,209 +118,303 @@ export const HUD: React.FC<HUDProps> = ({
               return (
                 <div key={idx} className="relative">
                   <Heart
-                    className={`w-5 h-5 transition-transform ${
+                    className={`w-4 h-4 ${
                       isFull
-                        ? 'text-rose-500 fill-rose-500 drop-shadow-[0_0_6px_rgba(244,63,94,0.6)]'
+                        ? 'text-[#ef4444] fill-[#ef4444]'
                         : isHalf
-                        ? 'text-rose-500 fill-rose-500/50'
-                        : 'text-stone-700 fill-stone-900/80'
+                        ? 'text-[#ef4444] fill-[#ef4444]/50'
+                        : 'text-[#451a1a] fill-[#200b0b]'
                     } ${playerStats.hp <= 4 && playerStats.hp > 0 ? 'animate-pulse' : ''}`}
                   />
                 </div>
               );
             })}
-            <span className="text-[11px] font-mono text-rose-300 ml-1.5 font-bold">
+            <span className="text-[9px] text-[#fca5a5] ml-1">
               {playerStats.hp}/{playerStats.maxHp}
             </span>
           </div>
 
           {/* XP Bar */}
           <div className="w-full">
-            <div className="flex justify-between text-[10px] font-mono text-emerald-400 mb-0.5">
+            <div className="flex justify-between text-[8px] text-[#86efac] mb-0.5">
               <span>EXP</span>
-              <span>{playerStats.xp % 100} / 100</span>
+              <span>{playerStats.xp % 100}/100</span>
             </div>
-            <div className="w-full h-2 bg-stone-900 rounded-full overflow-hidden border border-emerald-950">
+            <div className="w-full h-2.5 bg-[#140d07] border-2 border-[#1c130c] overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-emerald-500 to-lime-400 transition-all duration-300"
+                className="h-full bg-[#22c55e] transition-all duration-300"
                 style={{ width: `${playerStats.xp % 100}%` }}
               />
             </div>
           </div>
         </div>
 
-        {/* Quick Toolbar (Top-Right) */}
-        <div className="pointer-events-auto flex items-center gap-1.5 bg-gray-950/85 backdrop-blur-md border-2 border-stone-700/80 rounded-xl p-2 shadow-2xl">
+        {/* Quick Toolbar (Top-Right): Wood + Stone + Metal Buttons */}
+        <div className="pointer-events-auto pixel-box-stone p-1.5 sm:p-2 flex items-center gap-1 sm:gap-1.5 flex-wrap justify-end">
           {/* Rotate Camera Controls */}
           <button
             onClick={() => onRotateCamera(-1)}
             title="Rotate Camera Left (Q)"
-            className="p-2 hover:bg-stone-800 text-stone-300 hover:text-white rounded-lg transition active:scale-95"
+            className="pixel-btn-stone p-1.5 sm:p-2"
           >
-            <RotateCcw className="w-4 h-4" />
+            <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#e5e7eb]" />
           </button>
           <button
             onClick={() => onRotateCamera(1)}
             title="Rotate Camera Right (E)"
-            className="p-2 hover:bg-stone-800 text-stone-300 hover:text-white rounded-lg transition active:scale-95"
+            className="pixel-btn-stone p-1.5 sm:p-2"
           >
-            <RotateCw className="w-4 h-4" />
+            <RotateCw className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#e5e7eb]" />
           </button>
+
           {onResetCamera && (
             <button
               onClick={onResetCamera}
               title="Reset Isometric Camera (R)"
-              className="p-2 hover:bg-stone-800 text-amber-400 hover:text-amber-300 rounded-lg transition active:scale-95"
+              className="pixel-btn-stone p-1.5 sm:p-2 text-[#fbbf24]"
             >
-              <Compass className="w-4 h-4" />
+              <Compass className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           )}
 
-          {/* Auto-Rotate Camera Follow Player Toggle */}
+          {/* Auto-Rotate Toggle & Speed */}
           {onToggleAutoRotateCamera && (
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={onToggleAutoRotateCamera}
+                title={`Auto-Rotate Camera: ${autoRotateCamera ? 'ON' : 'OFF'} (Click to toggle)`}
+                className={`p-1.5 px-2 text-[9px] border-2 transition ${
+                  autoRotateCamera
+                    ? 'bg-[#155e75] border-[#22d3ee] text-[#cffafe]'
+                    : 'pixel-btn-stone text-[#9ca3af]'
+                }`}
+              >
+                <div className="flex items-center gap-1">
+                  <RefreshCw className={`w-3 h-3 ${autoRotateCamera ? 'animate-spin' : ''}`} />
+                  <span>{autoRotateCamera ? 'AUTO: ON' : 'AUTO: OFF'}</span>
+                </div>
+              </button>
+              {autoRotateCamera && onCycleAutoRotateSpeed && (
+                <button
+                  onClick={onCycleAutoRotateSpeed}
+                  title="Cycle Auto Rotate Speed (SLOW / NORMAL / FAST)"
+                  className="pixel-btn-stone px-1.5 py-1 text-[8px] text-[#fbbf24]"
+                >
+                  {autoRotateSpeed.toUpperCase()}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Vision Occlusion Cutaway Selector */}
+          {onCycleVisionOpacity && (
             <button
-              onClick={onToggleAutoRotateCamera}
-              title={`Camera Auto-Rotate Follows Player: ${autoRotateCamera ? 'ENABLED (Camera orbits behind player)' : 'DISABLED (Fixed isometric view)'} - Click to toggle`}
-              className={`p-1.5 px-2 rounded-lg transition active:scale-95 flex items-center gap-1.5 border text-xs ${
-                autoRotateCamera
-                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 shadow-sm shadow-cyan-500/20'
-                  : 'hover:bg-stone-800 text-stone-400 hover:text-stone-200 border-stone-700/60'
+              onClick={onCycleVisionOpacity}
+              title={`Vision Cutaway: ${visionPercent}% (Click to cycle 100% / 85% / 70% / 50%)`}
+              className={`p-1.5 px-2 text-[9px] border-2 transition ${
+                visionOpacity >= 0.95
+                  ? 'bg-[#14532d] border-[#4ade80] text-[#bbf7d0]'
+                  : 'pixel-btn-stone text-[#e5e7eb]'
               }`}
             >
-              <Camera className={`w-4 h-4 ${autoRotateCamera ? 'text-cyan-400' : 'text-stone-400'}`} />
-              <span className="hidden md:inline font-pixel text-[10px]">
-                {autoRotateCamera ? 'AUTO: ON' : 'AUTO: OFF'}
-              </span>
+              <div className="flex items-center gap-1">
+                <Eye className="w-3 h-3 text-[#facc15]" />
+                <span>VISION: {visionPercent}%</span>
+              </div>
             </button>
           )}
 
-          {/* Block Vision Transparency Toggle */}
-          {onToggleBlockOpacity && (
+          {/* Zoom Controls & Level Indicator */}
+          <div className="flex items-center gap-0.5 bg-[#181a1e] border-2 border-[#14161a] p-0.5">
             <button
-              onClick={onToggleBlockOpacity}
-              title={`Block Vision Transparency: ${Math.round((blockOpacity ?? 0.85) * 100)}% - Click to cycle (Translucent 85% / Glassy 65% / Opaque 100%)`}
-              className={`p-1.5 px-2 rounded-lg transition active:scale-95 flex items-center gap-1.5 border text-xs ${
-                (blockOpacity ?? 0.85) < 1.0
-                  ? 'bg-sky-500/20 text-sky-300 border-sky-500/50 shadow-sm shadow-sky-500/20'
-                  : 'hover:bg-stone-800 text-stone-400 hover:text-stone-200 border-stone-700/60'
-              }`}
+              onClick={() => onZoom(-3)}
+              title="Zoom In (+)"
+              className="pixel-btn-stone p-1"
             >
-              <Eye className={`w-4 h-4 ${(blockOpacity ?? 0.85) < 1.0 ? 'text-sky-400' : 'text-stone-400'}`} />
-              <span className="hidden md:inline font-pixel text-[10px]">
-                {blockOpacity === 0.65 ? 'X-RAY: 65%' : (blockOpacity ?? 0.85) < 1.0 ? 'VISION: 85%' : 'OPAQUE'}
-              </span>
+              <ZoomIn className="w-3 h-3 text-[#e5e7eb]" />
             </button>
-          )}
+            <span className="text-[8px] text-[#fbbf24] px-1 font-mono">{zoomPercent}%</span>
+            <button
+              onClick={() => onZoom(3)}
+              title="Zoom Out (-)"
+              className="pixel-btn-stone p-1"
+            >
+              <ZoomOut className="w-3 h-3 text-[#e5e7eb]" />
+            </button>
+          </div>
 
-          <div className="w-px h-5 bg-stone-700 mx-1" />
-
-          {/* Zoom */}
-          <button
-            onClick={() => onZoom(-3)}
-            title="Zoom In"
-            className="p-2 hover:bg-stone-800 text-stone-300 hover:text-white rounded-lg transition active:scale-95"
-          >
-            <ZoomIn className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => onZoom(3)}
-            title="Zoom Out"
-            className="p-2 hover:bg-stone-800 text-stone-300 hover:text-white rounded-lg transition active:scale-95"
-          >
-            <ZoomOut className="w-4 h-4" />
-          </button>
-
-          <div className="w-px h-5 bg-stone-700 mx-1" />
-
-          {/* Game Mode Toggle */}
+          {/* Game Mode */}
           <button
             onClick={() => setGameMode(gameMode === 'survival' ? 'creative' : 'survival')}
-            title={`Mode: ${gameMode.toUpperCase()} (Click to toggle)`}
-            className={`px-2.5 py-1 text-xs font-pixel rounded-lg border transition active:scale-95 ${
-              gameMode === 'creative'
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
-                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+            title={`Toggle Mode: ${gameMode.toUpperCase()}`}
+            className={`px-2 py-1 text-[9px] border-2 ${
+              gameMode === 'creative' ? 'pixel-btn-gold' : 'pixel-btn-green'
             }`}
           >
             {gameMode === 'creative' ? 'CREATIVE' : 'SURVIVAL'}
           </button>
 
-          <div className="w-px h-5 bg-stone-700 mx-1" />
-
-          {/* Audio Mute */}
+          {/* Audio */}
           <button
             onClick={() => setIsMuted(!isMuted)}
             title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-            className="p-2 hover:bg-stone-800 text-stone-300 hover:text-white rounded-lg transition active:scale-95"
+            className="pixel-btn-stone p-1.5 sm:p-2"
           >
-            {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+            {isMuted ? <VolumeX className="w-3.5 h-3.5 text-[#f87171]" /> : <Volume2 className="w-3.5 h-3.5 text-[#4ade80]" />}
           </button>
 
           {/* Wardrobe */}
           <button
             onClick={onOpenCustomizer}
-            title="Character Wardrobe & Style (C)"
-            className="p-2 hover:bg-stone-800 text-stone-300 hover:text-white rounded-lg transition active:scale-95"
+            title="Character Wardrobe (C)"
+            className="pixel-btn-stone p-1.5 sm:p-2"
           >
-            <User className="w-4 h-4" />
+            <User className="w-3.5 h-3.5 text-[#e5e7eb]" />
           </button>
 
-          {/* World Presets */}
+          {/* World Generator */}
           <button
             onClick={onOpenWorldModal}
-            title="World Generator & Presets"
-            className="p-2 hover:bg-stone-800 text-stone-300 hover:text-white rounded-lg transition active:scale-95"
+            title="Infinite World Settings"
+            className="pixel-btn-stone p-1.5 sm:p-2"
           >
-            <Map className="w-4 h-4" />
+            <Map className="w-3.5 h-3.5 text-[#fbbf24]" />
           </button>
 
           {/* Help */}
           <button
             onClick={onOpenHelp}
-            title="Controls & Instructions (H)"
-            className="p-2 hover:bg-stone-800 text-stone-300 hover:text-white rounded-lg transition active:scale-95"
+            title="Guide & Keybinds (H)"
+            className="pixel-btn-stone p-1.5 sm:p-2"
           >
-            <HelpCircle className="w-4 h-4" />
+            <HelpCircle className="w-3.5 h-3.5 text-[#60a5fa]" />
+          </button>
+
+          {/* Mobile Touch Controls Toggle */}
+          <button
+            onClick={() => setShowMobileControls(prev => !prev)}
+            title="Toggle On-Screen Touch D-Pad Controls"
+            className={`p-1.5 sm:p-2 text-[8px] border-2 ${
+              showMobileControls ? 'bg-[#78350f] border-[#f59e0b] text-[#fef3c7]' : 'pixel-btn-stone'
+            }`}
+          >
+            <Footprints className="w-3.5 h-3.5 text-[#fbbf24]" />
           </button>
         </div>
       </div>
 
-      {/* Bottom Center: Hotbar & Active Item Tooltip */}
-      <div className="flex flex-col items-center gap-2 pointer-events-auto w-full max-w-xl mx-auto">
-        {/* Active item label */}
+      {/* On-Screen Mobile Virtual Controls (Touch D-Pad + Pathfind Toggle) */}
+      {showMobileControls && (
+        <div className="pointer-events-auto flex justify-between items-end w-full px-2 py-1">
+          {/* Virtual D-Pad */}
+          <div className="pixel-box-stone p-2 flex flex-col items-center gap-1">
+            <button
+              onMouseDown={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }))}
+              onMouseUp={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }))}
+              onTouchStart={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }))}
+              onTouchEnd={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }))}
+              className="pixel-btn-stone w-10 h-10 flex items-center justify-center"
+            >
+              <ChevronUp className="w-5 h-5 text-[#f5eedc]" />
+            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onMouseDown={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }))}
+                onMouseUp={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA' }))}
+                onTouchStart={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }))}
+                onTouchEnd={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyA' }))}
+                className="pixel-btn-stone w-10 h-10 flex items-center justify-center"
+              >
+                <ChevronLeft className="w-5 h-5 text-[#f5eedc]" />
+              </button>
+              <button
+                onMouseDown={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }))}
+                onMouseUp={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }))}
+                onTouchStart={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space' }))}
+                onTouchEnd={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space' }))}
+                className="pixel-btn-gold w-10 h-10 flex items-center justify-center text-[8px]"
+              >
+                JUMP
+              </button>
+              <button
+                onMouseDown={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' }))}
+                onMouseUp={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' }))}
+                onTouchStart={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD' }))}
+                onTouchEnd={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' }))}
+                className="pixel-btn-stone w-10 h-10 flex items-center justify-center"
+              >
+                <ChevronRight className="w-5 h-5 text-[#f5eedc]" />
+              </button>
+            </div>
+            <button
+              onMouseDown={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyS' }))}
+              onMouseUp={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyS' }))}
+              onTouchStart={() => window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyS' }))}
+              onTouchEnd={() => window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyS' }))}
+              className="pixel-btn-stone w-10 h-10 flex items-center justify-center"
+            >
+              <ChevronDown className="w-5 h-5 text-[#f5eedc]" />
+            </button>
+          </div>
+
+          {/* Pathfind Toggle for Mobile Touch */}
+          {onToggleTouchShiftMode && (
+            <div className="pixel-box-wood p-2 flex flex-col gap-1.5 items-end">
+              <button
+                onClick={onToggleTouchShiftMode}
+                className={`px-3 py-2 text-[9px] border-2 ${
+                  touchShiftMode
+                    ? 'bg-[#0284c7] border-[#38bdf8] text-[#f0f9ff]'
+                    : 'pixel-btn-wood text-[#f5eedc]'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <Footprints className="w-4 h-4" />
+                  <span>{touchShiftMode ? 'SHIFT PATH: ON' : 'TAP: MINE'}</span>
+                </div>
+              </button>
+              <span className="text-[7px] text-[#c49a6c]">
+                {touchShiftMode ? 'Tap anywhere to auto-path' : 'Tap block to mine/interact'}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Bottom Center: Hotbar & Controls Guide */}
+      <div className="flex flex-col items-center gap-2 pointer-events-auto w-full max-w-2xl mx-auto">
+        {/* Active item tooltip */}
         {activeItem && (
-          <div className="px-3 py-1 bg-gray-950/80 backdrop-blur-md border border-stone-700/60 rounded-lg text-xs font-pixel text-amber-300 shadow-md">
-            {activeItem.name} {activeItem.damage ? `(${activeItem.damage} DMG)` : ''}
+          <div className="pixel-box-wood px-3 py-1 text-[10px] text-[#fde047] shadow-lg">
+            {activeItem.name} {activeItem.damage ? `(+${activeItem.damage} ATK)` : ''}
           </div>
         )}
 
-        {/* 9 Hotbar Slots */}
-        <div className="flex items-center gap-1.5 p-2 bg-gray-950/90 backdrop-blur-md border-2 border-stone-700/90 rounded-2xl shadow-2xl">
+        {/* 9 Hotbar Slots (Chunky 8-bit Pixel Inventory Slots) */}
+        <div className="flex items-center gap-1.5 p-2 pixel-box-wood">
           {hotbarItems.map((item, idx) => {
             const isSelected = idx === activeSlot;
             return (
               <button
                 key={idx}
                 onClick={() => setActiveSlot(idx)}
-                className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all ${
-                  isSelected
-                    ? 'bg-stone-700/80 border-2 border-amber-400 scale-105 shadow-[0_0_12px_rgba(251,191,36,0.5)]'
-                    : 'bg-stone-900/90 border border-stone-800 hover:bg-stone-800/80'
+                className={`relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center transition-all ${
+                  isSelected ? 'pixel-box-slot-active scale-105' : 'pixel-box-slot hover:bg-[#251a11]'
                 }`}
               >
-                {/* Slot index badge */}
-                <span className="absolute top-1 left-1.5 text-[9px] font-mono text-stone-500 font-bold">
+                {/* Slot index number */}
+                <span className="absolute top-1 left-1.5 text-[8px] text-[#78593d] font-bold">
                   {idx + 1}
                 </span>
 
-                {/* Item display */}
+                {/* Item representation */}
                 {item ? (
                   <div className="flex flex-col items-center justify-center">
-                    <span className="text-sm font-bold text-stone-200 truncate max-w-[36px]">
+                    <span className="text-sm">
                       {item.type === 'tool' ? '⛏️' : item.type === 'weapon' ? '⚔️' : item.id === 'torch' ? '🔥' : item.id === 'ruby' ? '💎' : '🧱'}
                     </span>
                     {item.count > 1 && (
-                      <span className="absolute bottom-1 right-1.5 text-[10px] font-pixel text-stone-100 font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">
+                      <span className="absolute bottom-1 right-1 text-[8px] text-[#fef08a] font-bold drop-shadow-[0_1px_2px_rgba(0,0,0,1)]">
                         {item.count}
                       </span>
                     )}
@@ -309,19 +424,28 @@ export const HUD: React.FC<HUDProps> = ({
             );
           })}
 
-          {/* Open full inventory button */}
+          {/* Open full bag button */}
           <button
             onClick={onOpenInventory}
-            title="Open Inventory & Crafting (I or Tab)"
-            className="w-12 h-12 rounded-xl bg-amber-600/20 border border-amber-500/50 hover:bg-amber-600/30 text-amber-400 flex items-center justify-center transition active:scale-95 ml-1"
+            title="Open Inventory & Crafting (I / Tab)"
+            className="pixel-btn-gold w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center ml-1"
           >
-            <Backpack className="w-5 h-5" />
+            <Backpack className="w-5 h-5 text-[#291b03]" />
           </button>
         </div>
 
-        {/* Controls Quick Hint */}
-        <div className="text-[11px] text-stone-300 bg-black/75 px-3.5 py-1 rounded-full backdrop-blur-md border border-stone-800 shadow-lg">
-          <span className="text-amber-400 font-semibold">WASD</span> Move • <span className="text-amber-400 font-semibold">Shift</span> Sprint • <span className="text-amber-400 font-semibold">Space</span> Jump • <span className="text-amber-400 font-semibold">Mid-Drag</span> Rotate & Tilt • <span className="text-amber-400 font-semibold">Wheel</span> Zoom • <span className="text-amber-400 font-semibold">Q/E/R</span> Camera • <span className="text-amber-400 font-semibold">I</span> Bag
+        {/* Updated Authentic Controls Guide */}
+        <div className="text-[8px] sm:text-[9px] text-[#d6c7b2] bg-[#1a120c]/90 px-4 py-1.5 border-2 border-[#382618] shadow-lg flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
+          <div><span className="text-[#fbbf24]">WASD</span> Move</div>
+          <div><span className="text-[#38bdf8]">SHIFT+CLICK</span> Auto Path</div>
+          <div><span className="text-[#fbbf24]">CLICK</span> Mine / Place</div>
+          <div><span className="text-[#fbbf24]">SHIFT</span> Sprint</div>
+          <div><span className="text-[#fbbf24]">SPACE</span> Jump</div>
+          <div><span className="text-[#fbbf24]">MID-DRAG</span> Rotate</div>
+          <div><span className="text-[#fbbf24]">WHEEL</span> Zoom</div>
+          <div><span className="text-[#fbbf24]">Q/E</span> Rotate</div>
+          <div><span className="text-[#fbbf24]">R</span> Reset</div>
+          <div><span className="text-[#fbbf24]">I</span> Bag</div>
         </div>
       </div>
     </div>
