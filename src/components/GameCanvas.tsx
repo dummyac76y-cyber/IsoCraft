@@ -35,6 +35,7 @@ interface GameCanvasProps {
   blockOpacity?: number;
   onZoom?: (delta: number) => void;
   touchShiftMode?: boolean;
+  playerPosRef?: React.MutableRefObject<{ x: number; y: number; z: number; facingAngle: number }>;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
@@ -63,7 +64,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   autoRotateSpeed = 'normal',
   blockOpacity = 0.85,
   onZoom,
-  touchShiftMode = false
+  touchShiftMode = false,
+  playerPosRef
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -1051,6 +1053,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       character.group.position.copy(playerPos);
       character.update(delta, isMoving, isRunning, !isGrounded, currentFacingAngle);
       character.setEquippedItem(activeItemRef.current);
+
+      // Sync player position & facing angle with minimap
+      if (playerPosRef) {
+        playerPosRef.current = {
+          x: playerPos.x,
+          y: playerPos.y,
+          z: playerPos.z,
+          facingAngle: currentFacingAngle
+        };
+      }
+
+      // Stream infinite chunks and explore terrain
+      world.update(playerPos.x, playerPos.z, playerPos.y, cameraAngleRef.current, blockOpacityRef.current);
 
       // Camera auto-rotate follow
       const isMining = isMouseDown && mouseButton === 0;

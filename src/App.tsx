@@ -171,8 +171,14 @@ export default function App() {
   // --- Floating Text Overlay ---
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
 
-  // Infinite Voxel World Reference
+  // Infinite Voxel World Reference & Player Position Reference for Minimap
   const worldRef = useRef<VoxelWorld | null>(null);
+  const playerPosRef = useRef<{ x: number; y: number; z: number; facingAngle: number }>({
+    x: 0,
+    y: 8,
+    z: 0,
+    facingAngle: Math.PI / 4 + Math.PI
+  });
 
   // Sync mute state with sound engine
   useEffect(() => {
@@ -353,6 +359,7 @@ export default function App() {
         blockOpacity={visionOpacity}
         onZoom={handleZoom}
         touchShiftMode={touchShiftMode}
+        playerPosRef={playerPosRef}
       />
 
       {/* Retro 8-bit Heads-Up Display (HUD) */}
@@ -387,6 +394,9 @@ export default function App() {
         onOpenHelp={() => setIsHelpOpen(true)}
         touchShiftMode={touchShiftMode}
         onToggleTouchShiftMode={handleToggleTouchShiftMode}
+        worldRef={worldRef}
+        playerPosRef={playerPosRef}
+        cameraAngle={cameraAngle}
       />
 
       {/* Floating 8-bit Notifications */}

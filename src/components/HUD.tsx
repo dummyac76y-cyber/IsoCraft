@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Heart, Compass, RotateCcw, RotateCw, ZoomIn, ZoomOut, Sun, Moon, Volume2, VolumeX, Backpack, User, Map, HelpCircle, Eye, RefreshCw, Footprints, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { PlayerStats, Item, GameMode } from '../types';
+import { VoxelWorld } from '../engine/world';
+import { IsometricMinimap } from './IsometricMinimap';
 
 interface HUDProps {
   playerStats: PlayerStats;
@@ -29,6 +31,9 @@ interface HUDProps {
   onOpenHelp: () => void;
   touchShiftMode?: boolean;
   onToggleTouchShiftMode?: () => void;
+  worldRef: React.MutableRefObject<VoxelWorld | null>;
+  playerPosRef: React.MutableRefObject<{ x: number; y: number; z: number; facingAngle: number }>;
+  cameraAngle: number;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -57,9 +62,13 @@ export const HUD: React.FC<HUDProps> = ({
   onOpenWorldModal,
   onOpenHelp,
   touchShiftMode = false,
-  onToggleTouchShiftMode
+  onToggleTouchShiftMode,
+  worldRef,
+  playerPosRef,
+  cameraAngle
 }) => {
   const [showMobileControls, setShowMobileControls] = useState<boolean>(false);
+  const [showMinimap, setShowMinimap] = useState<boolean>(true);
 
   // Hotbar takes first 9 slots of inventory
   const hotbarItems = Array(9).fill(null).map((_, i) => inventory[i] || null);
@@ -149,157 +158,180 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         </div>
 
-        {/* Quick Toolbar (Top-Right): Wood + Stone + Metal Buttons */}
-        <div className="pointer-events-auto pixel-box-stone p-1.5 sm:p-2 flex items-center gap-1 sm:gap-1.5 flex-wrap justify-end">
-          {/* Rotate Camera Controls */}
-          <button
-            onClick={() => onRotateCamera(-1)}
-            title="Rotate Camera Left (Q)"
-            className="pixel-btn-stone p-1.5 sm:p-2"
-          >
-            <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#e5e7eb]" />
-          </button>
-          <button
-            onClick={() => onRotateCamera(1)}
-            title="Rotate Camera Right (E)"
-            className="pixel-btn-stone p-1.5 sm:p-2"
-          >
-            <RotateCw className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#e5e7eb]" />
-          </button>
-
-          {onResetCamera && (
-            <button
-              onClick={onResetCamera}
-              title="Reset Isometric Camera (R)"
-              className="pixel-btn-stone p-1.5 sm:p-2 text-[#fbbf24]"
-            >
-              <Compass className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            </button>
+        {/* Top-Right Panel: Isometric Mini-Map Overlay & Quick Controls */}
+        <div className="flex flex-col items-end gap-1.5 max-w-[280px]">
+          {/* 32-bit Isometric Mini-Map Overlay */}
+          {showMinimap && (
+            <IsometricMinimap
+              worldRef={worldRef}
+              playerPosRef={playerPosRef}
+              cameraAngle={cameraAngle}
+            />
           )}
 
-          {/* Auto-Rotate Toggle & Speed */}
-          {onToggleAutoRotateCamera && (
-            <div className="flex items-center gap-0.5">
+          {/* Quick Toolbar (Top-Right): Wood + Stone + Metal Buttons */}
+          <div className="pointer-events-auto pixel-box-stone p-1 sm:p-1.5 flex items-center gap-1 sm:gap-1.5 flex-wrap justify-end">
+            {/* Minimap Toggle */}
+            <button
+              onClick={() => setShowMinimap(prev => !prev)}
+              title={showMinimap ? 'Hide Isometric Minimap' : 'Show Isometric Minimap'}
+              className={`p-1 sm:p-1.5 text-[8px] border-2 ${
+                showMinimap ? 'bg-[#155e75] border-[#22d3ee] text-[#cffafe]' : 'pixel-btn-stone'
+              }`}
+            >
+              <Map className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Rotate Camera Controls */}
+            <button
+              onClick={() => onRotateCamera(-1)}
+              title="Rotate Camera Left (Q)"
+              className="pixel-btn-stone p-1.5 sm:p-2"
+            >
+              <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#e5e7eb]" />
+            </button>
+            <button
+              onClick={() => onRotateCamera(1)}
+              title="Rotate Camera Right (E)"
+              className="pixel-btn-stone p-1.5 sm:p-2"
+            >
+              <RotateCw className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#e5e7eb]" />
+            </button>
+
+            {onResetCamera && (
               <button
-                onClick={onToggleAutoRotateCamera}
-                title={`Auto-Rotate Camera: ${autoRotateCamera ? 'ON' : 'OFF'} (Click to toggle)`}
+                onClick={onResetCamera}
+                title="Reset Isometric Camera (R)"
+                className="pixel-btn-stone p-1.5 sm:p-2 text-[#fbbf24]"
+              >
+                <Compass className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </button>
+            )}
+
+            {/* Auto-Rotate Toggle & Speed */}
+            {onToggleAutoRotateCamera && (
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={onToggleAutoRotateCamera}
+                  title={`Auto-Rotate Camera: ${autoRotateCamera ? 'ON' : 'OFF'} (Click to toggle)`}
+                  className={`p-1.5 px-2 text-[9px] border-2 transition ${
+                    autoRotateCamera
+                      ? 'bg-[#155e75] border-[#22d3ee] text-[#cffafe]'
+                      : 'pixel-btn-stone text-[#9ca3af]'
+                  }`}
+                >
+                  <div className="flex items-center gap-1">
+                    <RefreshCw className={`w-3 h-3 ${autoRotateCamera ? 'animate-spin' : ''}`} />
+                    <span>{autoRotateCamera ? 'AUTO: ON' : 'AUTO: OFF'}</span>
+                  </div>
+                </button>
+                {autoRotateCamera && onCycleAutoRotateSpeed && (
+                  <button
+                    onClick={onCycleAutoRotateSpeed}
+                    title="Cycle Auto Rotate Speed (SLOW / NORMAL / FAST)"
+                    className="pixel-btn-stone px-1.5 py-1 text-[8px] text-[#fbbf24]"
+                  >
+                    {autoRotateSpeed.toUpperCase()}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Vision Occlusion Cutaway Selector */}
+            {onCycleVisionOpacity && (
+              <button
+                onClick={onCycleVisionOpacity}
+                title={`Vision Cutaway: ${visionPercent}% (Click to cycle 100% / 85% / 70% / 50%)`}
                 className={`p-1.5 px-2 text-[9px] border-2 transition ${
-                  autoRotateCamera
-                    ? 'bg-[#155e75] border-[#22d3ee] text-[#cffafe]'
-                    : 'pixel-btn-stone text-[#9ca3af]'
+                  visionOpacity >= 0.95
+                    ? 'bg-[#14532d] border-[#4ade80] text-[#bbf7d0]'
+                    : 'pixel-btn-stone text-[#e5e7eb]'
                 }`}
               >
                 <div className="flex items-center gap-1">
-                  <RefreshCw className={`w-3 h-3 ${autoRotateCamera ? 'animate-spin' : ''}`} />
-                  <span>{autoRotateCamera ? 'AUTO: ON' : 'AUTO: OFF'}</span>
+                  <Eye className="w-3 h-3 text-[#facc15]" />
+                  <span>VISION: {visionPercent}%</span>
                 </div>
               </button>
-              {autoRotateCamera && onCycleAutoRotateSpeed && (
-                <button
-                  onClick={onCycleAutoRotateSpeed}
-                  title="Cycle Auto Rotate Speed (SLOW / NORMAL / FAST)"
-                  className="pixel-btn-stone px-1.5 py-1 text-[8px] text-[#fbbf24]"
-                >
-                  {autoRotateSpeed.toUpperCase()}
-                </button>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* Vision Occlusion Cutaway Selector */}
-          {onCycleVisionOpacity && (
+            {/* Zoom Controls & Level Indicator */}
+            <div className="flex items-center gap-0.5 bg-[#181a1e] border-2 border-[#14161a] p-0.5">
+              <button
+                onClick={() => onZoom(-3)}
+                title="Zoom In (+)"
+                className="pixel-btn-stone p-1"
+              >
+                <ZoomIn className="w-3 h-3 text-[#e5e7eb]" />
+              </button>
+              <span className="text-[8px] text-[#fbbf24] px-1 font-mono">{zoomPercent}%</span>
+              <button
+                onClick={() => onZoom(3)}
+                title="Zoom Out (-)"
+                className="pixel-btn-stone p-1"
+              >
+                <ZoomOut className="w-3 h-3 text-[#e5e7eb]" />
+              </button>
+            </div>
+
+            {/* Game Mode */}
             <button
-              onClick={onCycleVisionOpacity}
-              title={`Vision Cutaway: ${visionPercent}% (Click to cycle 100% / 85% / 70% / 50%)`}
-              className={`p-1.5 px-2 text-[9px] border-2 transition ${
-                visionOpacity >= 0.95
-                  ? 'bg-[#14532d] border-[#4ade80] text-[#bbf7d0]'
-                  : 'pixel-btn-stone text-[#e5e7eb]'
+              onClick={() => setGameMode(gameMode === 'survival' ? 'creative' : 'survival')}
+              title={`Toggle Mode: ${gameMode.toUpperCase()}`}
+              className={`px-2 py-1 text-[9px] border-2 ${
+                gameMode === 'creative' ? 'pixel-btn-gold' : 'pixel-btn-green'
               }`}
             >
-              <div className="flex items-center gap-1">
-                <Eye className="w-3 h-3 text-[#facc15]" />
-                <span>VISION: {visionPercent}%</span>
-              </div>
+              {gameMode === 'creative' ? 'CREATIVE' : 'SURVIVAL'}
             </button>
-          )}
 
-          {/* Zoom Controls & Level Indicator */}
-          <div className="flex items-center gap-0.5 bg-[#181a1e] border-2 border-[#14161a] p-0.5">
+            {/* Audio */}
             <button
-              onClick={() => onZoom(-3)}
-              title="Zoom In (+)"
-              className="pixel-btn-stone p-1"
+              onClick={() => setIsMuted(!isMuted)}
+              title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
+              className="pixel-btn-stone p-1.5 sm:p-2"
             >
-              <ZoomIn className="w-3 h-3 text-[#e5e7eb]" />
+              {isMuted ? <VolumeX className="w-3.5 h-3.5 text-[#f87171]" /> : <Volume2 className="w-3.5 h-3.5 text-[#4ade80]" />}
             </button>
-            <span className="text-[8px] text-[#fbbf24] px-1 font-mono">{zoomPercent}%</span>
+
+            {/* Wardrobe */}
             <button
-              onClick={() => onZoom(3)}
-              title="Zoom Out (-)"
-              className="pixel-btn-stone p-1"
+              onClick={onOpenCustomizer}
+              title="Character Wardrobe (C)"
+              className="pixel-btn-stone p-1.5 sm:p-2"
             >
-              <ZoomOut className="w-3 h-3 text-[#e5e7eb]" />
+              <User className="w-3.5 h-3.5 text-[#e5e7eb]" />
+            </button>
+
+            {/* World Generator */}
+            <button
+              onClick={onOpenWorldModal}
+              title="Infinite World Settings"
+              className="pixel-btn-stone p-1.5 sm:p-2"
+            >
+              <Map className="w-3.5 h-3.5 text-[#fbbf24]" />
+            </button>
+
+            {/* Help */}
+            <button
+              onClick={onOpenHelp}
+              title="Guide & Keybinds (H)"
+              className="pixel-btn-stone p-1.5 sm:p-2"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-[#60a5fa]" />
+            </button>
+
+            {/* Mobile Touch Controls Toggle */}
+            <button
+              onClick={() => setShowMobileControls(prev => !prev)}
+              title="Toggle On-Screen Touch D-Pad Controls"
+              className={`p-1.5 sm:p-2 text-[8px] border-2 ${
+                showMobileControls ? 'bg-[#78350f] border-[#f59e0b] text-[#fef3c7]' : 'pixel-btn-stone'
+              }`}
+            >
+              <Footprints className="w-3.5 h-3.5 text-[#fbbf24]" />
             </button>
           </div>
-
-          {/* Game Mode */}
-          <button
-            onClick={() => setGameMode(gameMode === 'survival' ? 'creative' : 'survival')}
-            title={`Toggle Mode: ${gameMode.toUpperCase()}`}
-            className={`px-2 py-1 text-[9px] border-2 ${
-              gameMode === 'creative' ? 'pixel-btn-gold' : 'pixel-btn-green'
-            }`}
-          >
-            {gameMode === 'creative' ? 'CREATIVE' : 'SURVIVAL'}
-          </button>
-
-          {/* Audio */}
-          <button
-            onClick={() => setIsMuted(!isMuted)}
-            title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
-            className="pixel-btn-stone p-1.5 sm:p-2"
-          >
-            {isMuted ? <VolumeX className="w-3.5 h-3.5 text-[#f87171]" /> : <Volume2 className="w-3.5 h-3.5 text-[#4ade80]" />}
-          </button>
-
-          {/* Wardrobe */}
-          <button
-            onClick={onOpenCustomizer}
-            title="Character Wardrobe (C)"
-            className="pixel-btn-stone p-1.5 sm:p-2"
-          >
-            <User className="w-3.5 h-3.5 text-[#e5e7eb]" />
-          </button>
-
-          {/* World Generator */}
-          <button
-            onClick={onOpenWorldModal}
-            title="Infinite World Settings"
-            className="pixel-btn-stone p-1.5 sm:p-2"
-          >
-            <Map className="w-3.5 h-3.5 text-[#fbbf24]" />
-          </button>
-
-          {/* Help */}
-          <button
-            onClick={onOpenHelp}
-            title="Guide & Keybinds (H)"
-            className="pixel-btn-stone p-1.5 sm:p-2"
-          >
-            <HelpCircle className="w-3.5 h-3.5 text-[#60a5fa]" />
-          </button>
-
-          {/* Mobile Touch Controls Toggle */}
-          <button
-            onClick={() => setShowMobileControls(prev => !prev)}
-            title="Toggle On-Screen Touch D-Pad Controls"
-            className={`p-1.5 sm:p-2 text-[8px] border-2 ${
-              showMobileControls ? 'bg-[#78350f] border-[#f59e0b] text-[#fef3c7]' : 'pixel-btn-stone'
-            }`}
-          >
-            <Footprints className="w-3.5 h-3.5 text-[#fbbf24]" />
-          </button>
         </div>
       </div>
 

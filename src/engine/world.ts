@@ -339,6 +339,95 @@ function fbm2D(x: number, z: number, seed: number, octaves: number = 4): number 
   return value;
 }
 
+export interface WorldStructure {
+  id: string;
+  name: string;
+  type: 'cottage' | 'shrine' | 'ruins' | 'watchtower' | 'chest' | 'bench';
+  x: number;
+  y: number;
+  z: number;
+}
+
+/**
+ * Natural Procedural Terrain Color Tinting
+ * Blends adjacent blocks seamlessly across chunk boundaries using continuous
+ * multi-octave coherent noise so textures NEVER look repetitive or stamped!
+ */
+export function getBlockNaturalTint(blockType: BlockType, wx: number, wy: number, wz: number, outColor: THREE.Color) {
+  // Continuous multi-octave coherent macro noise for large-scale natural landscape gradients
+  const macroNoise = fbm2D(wx * 0.035, wz * 0.035, 1337, 2);
+  const microHash = hash2D(wx * 19.7 + wy * 31.3, wz * 23.9, 999);
+  const microVar = (microHash - 0.5) * 0.08;
+
+  switch (blockType) {
+    case BlockType.GRASS: {
+      // Natural rolling hills green: shifts between vibrant sunlit lime green and deep mossy emerald
+      const t = macroNoise * 0.75 + microVar * 0.25;
+      const r = 0.94 + t * 0.14;
+      const g = 1.02 + (microHash - 0.5) * 0.05;
+      const b = 0.88 + (1 - t) * 0.15;
+      outColor.setRGB(r, g, b);
+      break;
+    }
+    case BlockType.DIRT:
+    case BlockType.FARMLAND: {
+      // Natural soil strata and loam moisture variation
+      const t = macroNoise * 0.65 + microVar * 0.35;
+      const r = 0.95 + t * 0.12;
+      const g = 0.93 + t * 0.10;
+      const b = 0.90 + t * 0.08;
+      outColor.setRGB(r, g, b);
+      break;
+    }
+    case BlockType.STONE:
+    case BlockType.COBBLESTONE:
+    case BlockType.STONE_BRICKS: {
+      // Geological sedimentary layers: subtle horizontal mineral banding
+      const strata = Math.sin(wy * 0.75 + wx * 0.03 + wz * 0.03) * 0.06;
+      const t = 1.0 + strata + microVar * 0.5;
+      outColor.setRGB(t * 0.98, t * 1.0, t * 1.02);
+      break;
+    }
+    case BlockType.SAND: {
+      // Wind-blown dune waves
+      const dune = Math.sin(wx * 0.08 + wz * 0.06) * 0.06;
+      const t = 1.0 + dune + microVar * 0.4;
+      outColor.setRGB(t * 1.02, t * 1.0, t * 0.96);
+      break;
+    }
+    case BlockType.LEAVES: {
+      // Foliage light catching: outer canopy clusters are brighter, interior is deep shade
+      const canopy = (microHash - 0.5) * 0.18 + macroNoise * 0.08;
+      outColor.setRGB(1.0 + canopy * 0.8, 1.02 + canopy, 0.94 + canopy * 0.5);
+      break;
+    }
+    case BlockType.WATER: {
+      const ripple = Math.sin(wx * 0.15 + wz * 0.12) * 0.05;
+      outColor.setRGB(0.96 + ripple, 1.0 + ripple * 0.5, 1.05 - ripple * 0.5);
+      break;
+    }
+    case BlockType.SNOW:
+    case BlockType.SNOW_GRASS: {
+      // Glacial blue shadow in crevices to sparkling alpine white
+      const frost = (microHash - 0.5) * 0.06;
+      outColor.setRGB(1.0 + frost * 0.5, 1.01 + frost * 0.5, 1.04 - frost);
+      break;
+    }
+    case BlockType.WOOD_LOG:
+    case BlockType.WOOD_PLANKS: {
+      const woodVar = (microHash - 0.5) * 0.08;
+      outColor.setRGB(1.0 + woodVar, 1.0 + woodVar, 0.98 + woodVar);
+      break;
+    }
+    default: {
+      // Subtle micro-dither for any other block
+      const d = 1.0 + (microHash - 0.5) * 0.04;
+      outColor.setRGB(d, d, d);
+      break;
+    }
+  }
+}
+
 /**
  * Single Chunk in the Infinite Voxel World
  */
@@ -350,12 +439,16 @@ export class VoxelChunk {
   public instancedMeshes: Map<BlockType, THREE.InstancedMesh> = new Map();
   public instanceCoords: Map<BlockType, Array<[number, number, number]>> = new Map();
   public isDirty: boolean = true;
+  public surfaceHeight: Uint8Array;
+  public surfaceBlock: Uint8Array;
   private boxGeo: THREE.BoxGeometry;
 
   constructor(cx: number, cz: number) {
     this.cx = cx;
     this.cz = cz;
     this.blocks = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT);
+    this.surfaceHeight = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+    this.surfaceBlock = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
     this.group = new THREE.Group();
     this.group.name = `Chunk_${cx}_${cz}`;
     this.boxGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -384,6 +477,7 @@ export class VoxelChunk {
 
   /**
    * Rebuilds InstancedMeshes for this chunk, applying dynamic occlusion cutaways
+   * and natural procedural color blending to prevent repetitive tiling!
    */
   public rebuild(world: VoxelWorld, occludedCoords: Set<string> | null = null) {
     // Clean old meshes
@@ -395,6 +489,25 @@ export class VoxelChunk {
 
     const worldStartX = this.cx * CHUNK_SIZE;
     const worldStartZ = this.cz * CHUNK_SIZE;
+
+    // Fast surface cache for instant O(1) minimap queries
+    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const sIdx = lx + lz * CHUNK_SIZE;
+        let topY = 0;
+        let topBlock = BlockType.AIR;
+        for (let ly = CHUNK_HEIGHT - 1; ly >= 0; ly--) {
+          const b = this.getLocalBlock(lx, ly, lz);
+          if (b !== BlockType.AIR) {
+            topY = ly;
+            topBlock = b;
+            break;
+          }
+        }
+        this.surfaceHeight[sIdx] = topY;
+        this.surfaceBlock[sIdx] = topBlock;
+      }
+    }
 
     // Group blocks by exposed block type
     const blocksByType: Map<BlockType, Array<[number, number, number]>> = new Map();
@@ -426,6 +539,7 @@ export class VoxelChunk {
     }
 
     const matrix = new THREE.Matrix4();
+    const tempColor = new THREE.Color();
 
     blocksByType.forEach((coords, blockType) => {
       const mat = textureRegistry.getMaterial(blockType);
@@ -470,9 +584,16 @@ export class VoxelChunk {
           matrix.setPosition(wx + 0.5, wy + 0.5, wz + 0.5);
         }
         instancedMesh.setMatrixAt(idx, matrix);
+
+        // Apply natural organic color tinting so adjacent blocks blend naturally without tiling repetition!
+        getBlockNaturalTint(blockType, wx, wy, wz, tempColor);
+        instancedMesh.setColorAt(idx, tempColor);
       });
 
       instancedMesh.instanceMatrix.needsUpdate = true;
+      if (instancedMesh.instanceColor) {
+        instancedMesh.instanceColor.needsUpdate = true;
+      }
       this.instancedMeshes.set(blockType, instancedMesh);
       this.instanceCoords.set(blockType, coords);
       this.group.add(instancedMesh);
@@ -507,6 +628,8 @@ export class VoxelWorld {
   public modifiedBlocks: Map<string, BlockType> = new Map();
   public chestContents: Map<string, Item[]> = new Map();
   public lightSources: Array<{ x: number; y: number; z: number; color: number; intensity: number; light?: THREE.PointLight }> = [];
+  public structures: WorldStructure[] = [];
+  public exploredChunks: Set<string> = new Set();
 
   // Dynamic Occlusion System
   public occludedCoords: Set<string> = new Set();
@@ -532,6 +655,8 @@ export class VoxelWorld {
     this.chestContents.clear();
     this.lightSources = [];
     this.occludedCoords.clear();
+    this.structures = [];
+    this.exploredChunks.clear();
 
     // Dispose all active chunks
     this.chunks.forEach(chunk => {
@@ -543,6 +668,9 @@ export class VoxelWorld {
     this.lastPlayerChunkX = NaN;
     this.lastPlayerChunkZ = NaN;
 
+    // Explore starting spawn area
+    this.explore(0, 0, 32);
+
     // Load initial 3x3 chunks around origin
     this.update(0, 0);
   }
@@ -553,6 +681,69 @@ export class VoxelWorld {
 
   public getBlockKey(x: number, y: number, z: number): string {
     return `${x},${y},${z}`;
+  }
+
+  public explore(playerX: number, playerZ: number, radiusBlocks: number = 32): void {
+    const minCx = Math.floor((playerX - radiusBlocks) / CHUNK_SIZE);
+    const maxCx = Math.floor((playerX + radiusBlocks) / CHUNK_SIZE);
+    const minCz = Math.floor((playerZ - radiusBlocks) / CHUNK_SIZE);
+    const maxCz = Math.floor((playerZ + radiusBlocks) / CHUNK_SIZE);
+
+    for (let cx = minCx; cx <= maxCx; cx++) {
+      for (let cz = minCz; cz <= maxCz; cz++) {
+        this.exploredChunks.add(this.getChunkKey(cx, cz));
+      }
+    }
+  }
+
+  public isExplored(wx: number, wz: number): boolean {
+    const cx = Math.floor(wx / CHUNK_SIZE);
+    const cz = Math.floor(wz / CHUNK_SIZE);
+    return this.exploredChunks.has(this.getChunkKey(cx, cz));
+  }
+
+  public getSurfaceAt(wx: number, wz: number): { blockType: BlockType; y: number; isExplored: boolean } {
+    const cx = Math.floor(wx / CHUNK_SIZE);
+    const cz = Math.floor(wz / CHUNK_SIZE);
+    const chunkKey = this.getChunkKey(cx, cz);
+    const chunk = this.chunks.get(chunkKey);
+    const isExplored = this.exploredChunks.has(chunkKey);
+
+    if (!chunk) {
+      return { blockType: BlockType.GRASS, y: 8, isExplored };
+    }
+
+    const lx = ((wx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const lz = ((wz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const sIdx = lx + lz * CHUNK_SIZE;
+    const y = chunk.surfaceHeight[sIdx];
+    let blockType = chunk.surfaceBlock[sIdx] as BlockType;
+
+    const key = this.getBlockKey(wx, y, wz);
+    if (this.modifiedBlocks.has(key)) {
+      blockType = this.modifiedBlocks.get(key)!;
+    }
+
+    return { blockType: blockType || BlockType.GRASS, y, isExplored };
+  }
+
+  public getBiomeAt(wx: number, wz: number): string {
+    const surf = this.getSurfaceAt(wx, wz);
+    if (surf.y >= 16 || surf.blockType === BlockType.SNOW || surf.blockType === BlockType.SNOW_GRASS) {
+      return 'Snowy Peaks';
+    }
+    if (surf.blockType === BlockType.WATER || (surf.blockType === BlockType.SAND && surf.y <= 7)) {
+      return 'River Valley';
+    }
+    if (surf.y >= 12) {
+      return 'Highland Crags';
+    }
+    const cx = Math.floor(wx / CHUNK_SIZE);
+    const cz = Math.floor(wz / CHUNK_SIZE);
+    if ((cx + cz) % 3 === 0) {
+      return 'Verdant Forest';
+    }
+    return 'Sunlit Meadow';
   }
 
   public getBlock(x: number, y: number, z: number): BlockType {
@@ -601,6 +792,19 @@ export class VoxelWorld {
 
     chunk.setLocalBlock(lx, y, lz, type);
     chunk.rebuild(this, this.occludedCoords);
+
+    // Update structures on player placement / destruction
+    if (type === BlockType.CRAFTING_BENCH) {
+      if (!this.structures.some(s => s.x === x && s.y === y && s.z === z)) {
+        this.structures.push({ id: `bench_${x}_${y}_${z}`, name: 'Crafting Table', type: 'bench', x, y, z });
+      }
+    } else if (type === BlockType.CHEST) {
+      if (!this.structures.some(s => s.x === x && s.y === y && s.z === z)) {
+        this.structures.push({ id: `chest_${x}_${y}_${z}`, name: 'Storage Chest', type: 'chest', x, y, z });
+      }
+    } else if (type === BlockType.AIR) {
+      this.structures = this.structures.filter(s => !(s.x === x && s.y === y && s.z === z));
+    }
 
     // If block is on the edge of a chunk, update the neighbor chunk mesh too
     if (lx === 0) this.chunks.get(this.getChunkKey(cx - 1, cz))?.rebuild(this, this.occludedCoords);
@@ -783,12 +987,17 @@ export class VoxelWorld {
     }
 
     // Deterministic Ruin Cottage / Village Outpost
-    // Spawns roughly every 8-10 chunks deterministically!
     const chunkScore = Math.floor(hash2D(cx * 77.1, cz * 89.3, this.seed) * 100);
     const isSpecialCottageChunk = (cx === 2 && cz === 2) || (chunkScore === 42 && Math.abs(cx) + Math.abs(cz) > 1);
 
     if (isSpecialCottageChunk) {
       this.generateCottageInChunk(chunk, startX, startZ, heightMap);
+    }
+
+    // Deterministic Ancient Runestone Shrine
+    const isShrineChunk = (cx === -2 && cz === 1) || (chunkScore === 73 && Math.abs(cx) + Math.abs(cz) > 1);
+    if (isShrineChunk) {
+      this.generateShrineInChunk(chunk, startX, startZ, heightMap);
     }
 
     // Apply any previously stored user modifications in this chunk
@@ -906,6 +1115,90 @@ export class VoxelWorld {
       color: 0xffaa33,
       intensity: 2.2
     });
+
+    // Register structures for the minimap
+    if (!this.structures.some(s => s.id === `cottage_${startX}_${startZ}`)) {
+      this.structures.push({
+        id: `cottage_${startX}_${startZ}`,
+        name: 'Ruin Cottage Outpost',
+        type: 'cottage',
+        x: startX + cx + 3,
+        y: baseY,
+        z: startZ + cz + 3
+      });
+    }
+    if (!this.structures.some(s => s.id === `chest_${chestWx}_${chestWy}_${chestWz}`)) {
+      this.structures.push({
+        id: `chest_${chestWx}_${chestWy}_${chestWz}`,
+        name: 'Treasure Chest',
+        type: 'chest',
+        x: chestWx,
+        y: chestWy,
+        z: chestWz
+      });
+    }
+    if (!this.structures.some(s => s.id === `bench_${startX + cx + 1}_${baseY + 1}_${startZ + cz + 4}`)) {
+      this.structures.push({
+        id: `bench_${startX + cx + 1}_${baseY + 1}_${startZ + cz + 4}`,
+        name: 'Crafting Table',
+        type: 'bench',
+        x: startX + cx + 1,
+        y: baseY + 1,
+        z: startZ + cz + 4
+      });
+    }
+  }
+
+  private generateShrineInChunk(chunk: VoxelChunk, startX: number, startZ: number, heightMap: number[][]) {
+    const cx = 5;
+    const cz = 5;
+    const baseY = Math.max(6, Math.min(CHUNK_HEIGHT - 8, heightMap[cx][cz] + 1));
+
+    // 5x5 Stone pedestal
+    for (let dx = 0; dx < 5; dx++) {
+      for (let dz = 0; dz < 5; dz++) {
+        chunk.setLocalBlock(cx + dx, baseY, cz + dz, BlockType.STONE_BRICKS);
+        for (let fy = baseY - 1; fy >= 1; fy--) {
+          const b = chunk.getLocalBlock(cx + dx, fy, cz + dz);
+          if (b === BlockType.AIR || b === BlockType.WATER) {
+            chunk.setLocalBlock(cx + dx, fy, cz + dz, BlockType.COBBLESTONE);
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    // 4 Corner Pillars with Lanterns
+    const corners = [[0, 0], [4, 0], [0, 4], [4, 4]];
+    corners.forEach(([px, pz]) => {
+      chunk.setLocalBlock(cx + px, baseY + 1, cz + pz, BlockType.STONE_BRICKS);
+      chunk.setLocalBlock(cx + px, baseY + 2, cz + pz, BlockType.LANTERN);
+      this.lightSources.push({
+        x: startX + cx + px,
+        y: baseY + 2,
+        z: startZ + cz + pz,
+        color: 0x93c5fd,
+        intensity: 2.0
+      });
+    });
+
+    // Central Monolith with mystical ruby ore & gold
+    chunk.setLocalBlock(cx + 2, baseY + 1, cz + 2, BlockType.RUBY_ORE);
+    chunk.setLocalBlock(cx + 2, baseY + 2, cz + 2, BlockType.GOLD_ORE);
+    chunk.setLocalBlock(cx + 2, baseY + 3, cz + 2, BlockType.LANTERN);
+
+    // Register shrine structure for the minimap
+    if (!this.structures.some(s => s.id === `shrine_${startX}_${startZ}`)) {
+      this.structures.push({
+        id: `shrine_${startX}_${startZ}`,
+        name: 'Ancient Runestone Shrine',
+        type: 'shrine',
+        x: startX + cx + 2,
+        y: baseY + 1,
+        z: startZ + cz + 2
+      });
+    }
   }
 
   /**
@@ -914,6 +1207,9 @@ export class VoxelWorld {
    */
   public update(playerX: number, playerZ: number, playerY: number = 8, cameraAngle: number = Math.PI / 4, visionSetting: number = 0.85) {
     this.visionOpacity = visionSetting;
+    // Always mark current radius as explored for the infinite world minimap
+    this.explore(playerX, playerZ, 32);
+
     const currentChunkX = Math.floor(playerX / CHUNK_SIZE);
     const currentChunkZ = Math.floor(playerZ / CHUNK_SIZE);
 

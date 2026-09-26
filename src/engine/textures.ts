@@ -36,48 +36,52 @@ export function canvasToTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture 
   return texture;
 }
 
-// Block Texture Generators (16x16 pixel art)
+// Block Texture Generators (16x16 seamless pixel art)
+// Block Texture Generators (16x16 seamless pixel art with organic noise)
 export function generateGrassTopTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
-  const greens = ['#4ca636', '#59be3f', '#3f8c2b', '#68d44a', '#367724', '#7ae459'];
+  const greens = ['#499e34', '#55b23d', '#3f8c2b', '#62c846', '#3b7f27', '#6fda50', '#449630'];
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
-      const rand = seededRandom(x, y, 101);
-      const colorIdx = Math.floor(rand * greens.length);
+      // Toroidal wrapping so edges tile seamlessly
+      const ax = (x / 16) * Math.PI * 2;
+      const ay = (y / 16) * Math.PI * 2;
+      const n1 = Math.sin(ax * 2 + Math.cos(ay)) * 0.25;
+      const n2 = Math.cos(ay * 2 + Math.sin(ax)) * 0.25;
+      const rand = (seededRandom(x, y, 101) * 0.4 + (n1 + n2 + 0.5) * 0.6);
+      const colorIdx = Math.floor(Math.max(0, Math.min(0.999, rand)) * greens.length);
       setPixel(ctx, x, y, greens[colorIdx]);
     }
   }
-  // Subtle clover and flower accent dots
-  setPixel(ctx, 3, 4, '#ffeedd');
-  setPixel(ctx, 11, 9, '#ffeedd');
-  setPixel(ctx, 7, 12, '#ffee55');
   return canvasToTexture(canvas);
 }
 
 export function generateGrassSideTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
-  const dirts = ['#6e4a2d', '#7d5433', '#5a3b22', '#8c5f3a', '#4e331c'];
-  const greens = ['#4ca636', '#59be3f', '#3f8c2b', '#68d44a'];
+  const dirts = ['#6e4a2d', '#7d5433', '#5a3b22', '#855936', '#4e331c', '#634227'];
+  const greens = ['#499e34', '#55b23d', '#3f8c2b', '#62c846'];
 
-  // Dirt base
+  // Dirt base with smooth organic noise
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
-      const rand = seededRandom(x, y, 202);
-      const colorIdx = Math.floor(rand * dirts.length);
+      const ax = (x / 16) * Math.PI * 2;
+      const n = Math.sin(ax + y * 0.6) * 0.2;
+      const rand = (seededRandom(x, y, 202) * 0.7 + n + 0.3) % 1;
+      const colorIdx = Math.floor(Math.max(0, Math.min(0.999, Math.abs(rand))) * dirts.length);
       setPixel(ctx, x, y, dirts[colorIdx]);
     }
   }
-  // Overhanging grass blades
+  // Soft organic overhanging grass blades that wrap seamlessly at x=0 and x=15
   for (let x = 0; x < 16; x++) {
-    const overhang = 3 + Math.floor(seededRandom(x, 1, 303) * 4);
+    const ax = (x / 16) * Math.PI * 2;
+    const overhang = 2 + Math.floor((Math.sin(ax * 3) * 0.5 + 0.5) * 3 + seededRandom(x, 1, 303) * 1.5);
     for (let y = 0; y < overhang; y++) {
       const gRand = seededRandom(x, y, 404);
       const gColor = greens[Math.floor(gRand * greens.length)];
       setPixel(ctx, x, y, gColor);
     }
-    // Grass tip shadow
     if (overhang < 15) {
-      setPixel(ctx, x, overhang, '#362413');
+      setPixel(ctx, x, overhang, '#3a2614');
     }
   }
   return canvasToTexture(canvas);
@@ -85,49 +89,49 @@ export function generateGrassSideTexture(): THREE.CanvasTexture {
 
 export function generateDirtTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
-  const dirts = ['#6e4a2d', '#7d5433', '#5a3b22', '#8c5f3a', '#4e331c', '#634227'];
+  const dirts = ['#6e4a2d', '#7d5433', '#5a3b22', '#855936', '#4e331c', '#634227', '#734d2f'];
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
-      const rand = seededRandom(x, y, 505);
-      setPixel(ctx, x, y, dirts[Math.floor(rand * dirts.length)]);
+      const ax = (x / 16) * Math.PI * 2;
+      const ay = (y / 16) * Math.PI * 2;
+      const n = (Math.sin(ax * 2) * Math.cos(ay * 2)) * 0.25;
+      const rand = (seededRandom(x, y, 505) * 0.65 + (n + 0.35));
+      const colorIdx = Math.floor(Math.max(0, Math.min(0.999, rand)) * dirts.length);
+      setPixel(ctx, x, y, dirts[colorIdx]);
     }
   }
-  // A few small pebbles
-  setPixel(ctx, 4, 5, '#8c8c8c');
-  setPixel(ctx, 5, 5, '#6b6b6b');
-  setPixel(ctx, 12, 10, '#8c8c8c');
   return canvasToTexture(canvas);
 }
 
 export function generateStoneTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
-  const stones = ['#73737b', '#82828a', '#63636b', '#919199', '#54545c'];
+  const stones = ['#73737b', '#82828a', '#686870', '#8c8c94', '#5e5e66', '#7a7a82'];
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
-      const rand = seededRandom(x, y, 606);
-      setPixel(ctx, x, y, stones[Math.floor(rand * stones.length)]);
+      const ax = (x / 16) * Math.PI * 2;
+      const ay = (y / 16) * Math.PI * 2;
+      const wave = (Math.sin(ax * 2 + ay) + Math.cos(ay * 2 - ax)) * 0.15;
+      const rand = (seededRandom(x, y, 606) * 0.7 + (wave + 0.3));
+      const colorIdx = Math.floor(Math.max(0, Math.min(0.999, rand)) * stones.length);
+      setPixel(ctx, x, y, stones[colorIdx]);
     }
   }
-  // Natural stone fissures/grooves
-  const crack = '#424248';
-  setPixel(ctx, 3, 3, crack);
-  setPixel(ctx, 4, 3, crack);
-  setPixel(ctx, 5, 4, crack);
-  setPixel(ctx, 9, 8, crack);
-  setPixel(ctx, 10, 9, crack);
-  setPixel(ctx, 11, 9, crack);
   return canvasToTexture(canvas);
 }
 
 export function generateCobblestoneTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
-  const mortar = '#38383e';
-  const stones = ['#8c8c94', '#797981', '#66666e', '#9b9ba3', '#54545c'];
+  const mortar = '#3d3d44';
+  const stones = ['#888890', '#7a7a82', '#696971', '#96969e', '#5a5a62'];
 
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
-      const isBorder = (x % 5 === 0) || (y % 4 === 0) || ((x + y * 2) % 7 === 0);
-      if (isBorder && seededRandom(x, y, 707) > 0.3) {
+      // Natural organic cobblestone cell borders without harsh recurring checkerboard lines
+      const cx = (x + Math.floor(Math.sin(y * 0.8) * 1.5) + 16) % 8;
+      const cy = (y + Math.floor(Math.cos(x * 0.8) * 1.5) + 16) % 8;
+      const isMortar = cx === 0 || cy === 0;
+
+      if (isMortar && seededRandom(x, y, 707) > 0.3) {
         setPixel(ctx, x, y, mortar);
       } else {
         const rand = seededRandom(x, y, 808);
@@ -140,12 +144,15 @@ export function generateCobblestoneTexture(): THREE.CanvasTexture {
 
 export function generateSandTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
-  const sands = ['#d8be7b', '#e4cc8c', '#cbb06d', '#f0daa0', '#bfa35e'];
+  const sands = ['#d8be7b', '#e4cc8c', '#cbb06d', '#f0daa0', '#bfa35e', '#d2b675'];
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
-      const wave = Math.sin((x + y * 0.5) * 0.8) * 0.2;
-      const rand = (seededRandom(x, y, 909) + wave + 1) % 1;
-      setPixel(ctx, x, y, sands[Math.floor(rand * sands.length)]);
+      const ax = (x / 16) * Math.PI * 2;
+      const ay = (y / 16) * Math.PI * 2;
+      const wave = Math.sin(ax + ay * 0.5) * 0.2;
+      const rand = (seededRandom(x, y, 909) * 0.6 + wave * 0.4 + 0.5);
+      const colorIdx = Math.floor(Math.max(0, Math.min(0.999, rand)) * sands.length);
+      setPixel(ctx, x, y, sands[colorIdx]);
     }
   }
   return canvasToTexture(canvas);
@@ -153,19 +160,17 @@ export function generateSandTexture(): THREE.CanvasTexture {
 
 export function generateWaterTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
-  const waters = ['rgba(44, 130, 217, 0.75)', 'rgba(56, 150, 237, 0.75)', 'rgba(35, 110, 195, 0.75)', 'rgba(80, 175, 255, 0.8)'];
+  const waters = ['rgba(44, 130, 217, 0.75)', 'rgba(56, 150, 237, 0.75)', 'rgba(35, 110, 195, 0.75)', 'rgba(68, 160, 245, 0.78)'];
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
-      const wave = Math.sin((x * 0.6 + y * 0.4)) * 0.5 + 0.5;
-      const rand = (seededRandom(x, y, 1010) * 0.3 + wave * 0.7);
+      // Seamless toroidal flow ripples with no static repeating dots
+      const ax = (x / 16) * Math.PI * 2;
+      const ay = (y / 16) * Math.PI * 2;
+      const wave = (Math.sin(ax + ay) * 0.5 + Math.cos(ax * 2 - ay) * 0.3) * 0.5 + 0.5;
+      const rand = (seededRandom(x, y, 1010) * 0.25 + wave * 0.75);
       setPixel(ctx, x, y, waters[Math.floor(rand * waters.length)]);
     }
   }
-  // Wave highlights
-  setPixel(ctx, 3, 2, 'rgba(210, 240, 255, 0.9)');
-  setPixel(ctx, 4, 2, 'rgba(210, 240, 255, 0.9)');
-  setPixel(ctx, 10, 8, 'rgba(210, 240, 255, 0.9)');
-  setPixel(ctx, 11, 8, 'rgba(210, 240, 255, 0.9)');
   const texture = canvasToTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
@@ -175,21 +180,13 @@ export function generateWaterTexture(): THREE.CanvasTexture {
 export function generateWoodLogSideTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
   const barks = ['#784e2c', '#8c5c35', '#654022', '#52331b', '#9b673d', '#422814'];
-  const darkEdge = '#301c0d';
-  const lightEdge = '#a37145';
 
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
-      if (y === 0) {
-        setPixel(ctx, x, y, lightEdge);
-      } else if (y === 15) {
-        setPixel(ctx, x, y, darkEdge);
-      } else {
-        const stripe = Math.floor(x / 2);
-        const rand = seededRandom(stripe, y, 1111);
-        const color = barks[Math.floor(rand * barks.length)];
-        setPixel(ctx, x, y, color);
-      }
+      const stripe = Math.floor(x / 2);
+      const rand = seededRandom(stripe, y, 1111);
+      const color = barks[Math.floor(rand * barks.length)];
+      setPixel(ctx, x, y, color);
     }
   }
   return canvasToTexture(canvas);
@@ -198,15 +195,12 @@ export function generateWoodLogSideTexture(): THREE.CanvasTexture {
 export function generateWoodLogTopTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
   const barkBorder = '#4a2d18';
-  const barkHighlight = '#694124';
   const rings = ['#b88a59', '#cba06e', '#a47646', '#936437', '#ddb280'];
 
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
       if (x === 0 || x === 15 || y === 0 || y === 15) {
         setPixel(ctx, x, y, barkBorder);
-      } else if (x === 1 || x === 14 || y === 1 || y === 14) {
-        setPixel(ctx, x, y, barkHighlight);
       } else {
         const dx = x - 7.5;
         const dy = y - 7.5;
@@ -237,23 +231,18 @@ export function generateWoodPlanksTexture(): THREE.CanvasTexture {
       }
     }
   }
-  // Iron nail pegs
-  setPixel(ctx, 1, 1, '#2c221a');
-  setPixel(ctx, 9, 1, '#2c221a');
-  setPixel(ctx, 5, 5, '#2c221a');
-  setPixel(ctx, 13, 5, '#2c221a');
   return canvasToTexture(canvas);
 }
 
 export function generateLeavesTexture(): THREE.CanvasTexture {
   const { canvas, ctx } = createPixelCanvas(16);
-  const leafGreens = ['#2e7820', '#3b8f2b', '#246318', '#4bb037', '#1c5013'];
+  const leafGreens = ['#2e7820', '#3b8f2b', '#246318', '#4bb037', '#1c5013', '#338222'];
 
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
       const rand = seededRandom(x, y, 1313);
-      if (rand > 0.88 && ((x + y) % 2 === 0)) {
-        // Slight cutout transparency for lush canopy depth
+      if (rand > 0.92 && ((x + y) % 2 === 0)) {
+        // Subtle natural foliage cutout
         setPixel(ctx, x, y, 'rgba(0,0,0,0)');
       } else {
         setPixel(ctx, x, y, leafGreens[Math.floor(rand * leafGreens.length)]);
