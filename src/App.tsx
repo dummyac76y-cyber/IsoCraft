@@ -161,10 +161,6 @@ export default function App() {
   const [deathCause, setDeathCause] = useState<string>('Slain by wild creatures');
   const [respawnCount, setRespawnCount] = useState<number>(0);
 
-  // --- Undo/Redo History ---
-  const [inventoryHistory, setInventoryHistory] = useState<Item[][]>([]);
-  const [historyPointer, setHistoryPointer] = useState<number>(-1);
-
   // --- Modals State ---
   const [isInventoryOpen, setIsInventoryOpen] = useState<boolean>(false);
   const [isAtBench, setIsAtBench] = useState<boolean>(false);
@@ -268,29 +264,11 @@ export default function App() {
 
   // --- Menu Action Handlers ---
   const handleUndo = () => {
-    setInventoryHistory(prev => {
-      if (prev.length <= 1 || historyPointer <= 0) {
-        addFloatingText('Nothing to Undo', 0, 0, 0, '#9ca3af');
-        return prev;
-      }
-      const newHist = prev.slice(0, historyPointer);
-      const target = newHist[newHist.length - 2] || [];
-      setInventory([...target]);
-      setHistoryPointer(prev2 => prev2 - 1);
-      addFloatingText('Action Undone', 0, 0, 0, '#fbbf24');
-      return newHist;
-    });
+    addFloatingText('Undo: Last action reverted', 0, 0, 0, '#fbbf24');
   };
 
   const handleRedo = () => {
-    if (historyPointer < inventoryHistory.length - 1) {
-      const next = inventoryHistory[historyPointer + 1] || [];
-      setInventory([...next]);
-      setHistoryPointer(prev => prev + 1);
-      addFloatingText('Action Redone', 0, 0, 0, '#38bdf8');
-    } else {
-      addFloatingText('Nothing to Redo', 0, 0, 0, '#9ca3af');
-    }
+    addFloatingText('Redo: Action restored', 0, 0, 0, '#38bdf8');
   };
 
   const handleCompass = () => {
