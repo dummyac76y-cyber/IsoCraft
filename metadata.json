@@ -1,0 +1,6 @@
+{
+  "name": "Isometric Voxel Sandbox RPG",
+  "description": "A 3D voxel-based sandbox game with an isometric 2.5D perspective, 32-bit pixel-art aesthetics, block building, mining, crafting, exploration, and semi-blocky character adventure.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
