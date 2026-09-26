@@ -6,7 +6,6 @@ import { CharacterModal } from './components/CharacterModal';
 import { WorldModal } from './components/WorldModal';
 import { HelpModal } from './components/HelpModal';
 import { DeathModal } from './components/DeathModal';
-import { GameMenu } from './components/GameMenu';
 import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, BlockType } from './types';
 import { VoxelWorld } from './engine/world';
 import { sound } from './engine/sound';
@@ -262,32 +261,6 @@ export default function App() {
     setRespawnCount(c => c + 1);
   };
 
-  // --- Menu Action Handlers ---
-  const handleUndo = () => {
-    addFloatingText('Undo: Last action reverted', 0, 0, 0, '#fbbf24');
-  };
-
-  const handleRedo = () => {
-    addFloatingText('Redo: Action restored', 0, 0, 0, '#38bdf8');
-  };
-
-  const handleCompass = () => {
-    addFloatingText('Compass: North Marker Set', 0, 0, 0, '#fde047');
-  };
-
-  const handleMap = () => {
-    addFloatingText('World Map Opened', 0, 0, 0, '#93c5fd');
-  };
-
-  const handleProfile = () => {
-    addFloatingText('Player Profile Opened', 0, 0, 0, '#facc12');
-  };
-
-  const handleTips = () => {
-    setIsHelpOpen(true);
-    addFloatingText('Tips & Guide', 0, 0, 0, '#fde047');
-  };
-
   // Add floating text
   const addFloatingText = (text: string, x: number, y: number, z: number, color: string) => {
     const id = `ft_${Date.now()}_${Math.random()}`;
@@ -485,28 +458,6 @@ export default function App() {
       <HelpModal
         isOpen={isHelpOpen}
         onClose={() => setIsHelpOpen(false)}
-      />
-
-      {/* Game Menu Dropdown (consolidated HUD controls) */}
-      <GameMenu
-        gameMode={gameMode}
-        onToggleGameMode={() => setGameMode(gameMode === 'survival' ? 'creative' : 'survival')}
-        autoRotateCamera={autoRotateCamera}
-        onToggleAutoRotate={handleToggleAutoRotateCamera}
-        visionOpacity={visionOpacity}
-        onCycleVision={handleCycleVisionOpacity}
-        zoomLevel={zoomLevel}
-        onZoomIn={() => handleZoom(-3)}
-        onZoomOut={() => handleZoom(3)}
-        isMuted={isMuted}
-        onToggleSound={() => setIsMuted(!isMuted)}
-        onOpenHelp={() => setIsHelpOpen(true)}
-        onOpenMap={handleMap}
-        onOpenProfile={handleProfile}
-        onOpenTips={handleTips}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        onCompass={handleCompass}
       />
 
       {/* Player Death Modal */}
