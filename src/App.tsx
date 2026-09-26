@@ -6,6 +6,7 @@ import { CharacterModal } from './components/CharacterModal';
 import { WorldModal } from './components/WorldModal';
 import { HelpModal } from './components/HelpModal';
 import { DeathModal } from './components/DeathModal';
+import { GameMenu } from './components/GameMenu';
 import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, BlockType } from './types';
 import { VoxelWorld } from './engine/world';
 import { sound } from './engine/sound';
@@ -160,6 +161,10 @@ export default function App() {
   const [deathCause, setDeathCause] = useState<string>('Slain by wild creatures');
   const [respawnCount, setRespawnCount] = useState<number>(0);
 
+  // --- Undo/Redo History ---
+  const [inventoryHistory, setInventoryHistory] = useState<Item[][]>([]);
+  const [historyPointer, setHistoryPointer] = useState<number>(-1);
+
   // --- Modals State ---
   const [isInventoryOpen, setIsInventoryOpen] = useState<boolean>(false);
   const [isAtBench, setIsAtBench] = useState<boolean>(false);
@@ -259,6 +264,50 @@ export default function App() {
     }));
     setIsDead(false);
     setRespawnCount(c => c + 1);
+  };
+
+  // --- Menu Action Handlers ---
+  const handleUndo = () => {
+    setInventoryHistory(prev => {
+      if (prev.length <= 1 || historyPointer <= 0) {
+        addFloatingText('Nothing to Undo', 0, 0, 0, '#9ca3af');
+        return prev;
+      }
+      const newHist = prev.slice(0, historyPointer);
+      const target = newHist[newHist.length - 2] || [];
+      setInventory([...target]);
+      setHistoryPointer(prev2 => prev2 - 1);
+      addFloatingText('Action Undone', 0, 0, 0, '#fbbf24');
+      return newHist;
+    });
+  };
+
+  const handleRedo = () => {
+    if (historyPointer < inventoryHistory.length - 1) {
+      const next = inventoryHistory[historyPointer + 1] || [];
+      setInventory([...next]);
+      setHistoryPointer(prev => prev + 1);
+      addFloatingText('Action Redone', 0, 0, 0, '#38bdf8');
+    } else {
+      addFloatingText('Nothing to Redo', 0, 0, 0, '#9ca3af');
+    }
+  };
+
+  const handleCompass = () => {
+    addFloatingText('Compass: North Marker Set', 0, 0, 0, '#fde047');
+  };
+
+  const handleMap = () => {
+    addFloatingText('World Map Opened', 0, 0, 0, '#93c5fd');
+  };
+
+  const handleProfile = () => {
+    addFloatingText('Player Profile Opened', 0, 0, 0, '#facc12');
+  };
+
+  const handleTips = () => {
+    setIsHelpOpen(true);
+    addFloatingText('Tips & Guide', 0, 0, 0, '#fde047');
   };
 
   // Add floating text
@@ -458,6 +507,28 @@ export default function App() {
       <HelpModal
         isOpen={isHelpOpen}
         onClose={() => setIsHelpOpen(false)}
+      />
+
+      {/* Game Menu Dropdown (consolidated HUD controls) */}
+      <GameMenu
+        gameMode={gameMode}
+        onToggleGameMode={() => setGameMode(gameMode === 'survival' ? 'creative' : 'survival')}
+        autoRotateCamera={autoRotateCamera}
+        onToggleAutoRotate={handleToggleAutoRotateCamera}
+        visionOpacity={visionOpacity}
+        onCycleVision={handleCycleVisionOpacity}
+        zoomLevel={zoomLevel}
+        onZoomIn={() => handleZoom(-3)}
+        onZoomOut={() => handleZoom(3)}
+        isMuted={isMuted}
+        onToggleSound={() => setIsMuted(!isMuted)}
+        onOpenHelp={() => setIsHelpOpen(true)}
+        onOpenMap={handleMap}
+        onOpenProfile={handleProfile}
+        onOpenTips={handleTips}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onCompass={handleCompass}
       />
 
       {/* Player Death Modal */}
