@@ -103,6 +103,3 @@ export const HUD: React.FC<HUDProps> = ({
 void Shield;
 void Pause;
 void Zap;
-void onOpenWorldModal;
-void onRotateCamera;
-void onZoom;
