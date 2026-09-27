@@ -3,6 +3,30 @@ import { MobEntity, DroppedItemEntity, Item, BlockType } from '../types';
 import { sound } from './sound';
 import { VoxelWorld } from './world';
 
+const MOB_RADIUS = 0.34;
+const MOB_HEIGHT = 1.25;
+const PLAYER_RADIUS = 0.30;
+
+function circleOverlapsSolid(world: VoxelWorld, x: number, y: number, z: number, radius: number, height: number): boolean {
+  const minX = Math.floor(x - radius);
+  const maxX = Math.floor(x + radius);
+  const minZ = Math.floor(z - radius);
+  const maxZ = Math.floor(z + radius);
+  const minY = Math.floor(y + 0.05);
+  const maxY = Math.floor(y + height - 0.05);
+  for (let by = minY; by <= maxY; by++) {
+    for (let bz = minZ; bz <= maxZ; bz++) {
+      for (let bx = minX; bx <= maxX; bx++) {
+        if (!world.isSolid(bx, by, bz)) continue;
+        const closestX = Math.max(bx, Math.min(x, bx + 1));
+        const closestZ = Math.max(bz, Math.min(z, bz + 1));
+        if ((x - closestX) ** 2 + (z - closestZ) ** 2 < radius ** 2) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export class MobManager {
   public group: THREE.Group;
   public mobs: MobEntity[] = [];
@@ -327,39 +351,51 @@ export class MobManager {
         }
       }
 
-      // Gravity & Terrain collision for mob
+      // Gravity and swept circle/AABB collision. Resolve each axis independently so
+      // mobs stop at walls and naturally slide along them instead of tunnelling.
       mob.vy -= 18.0 * delta;
-
-      // Step movement
-      const nextX = mob.x + mob.vx * delta;
-      const nextZ = mob.z + mob.vz * delta;
       const nextY = mob.y + mob.vy * delta;
-
-      // Voxel collision
-      const checkBlock = world.isSolid(Math.floor(nextX), Math.floor(mob.y), Math.floor(nextZ));
-      const stepBlock = world.isSolid(Math.floor(nextX), Math.floor(mob.y + 1), Math.floor(nextZ));
-
-      if (checkBlock && !stepBlock) {
-        // Step up
-        mob.y = Math.floor(mob.y) + 1.0;
-        mob.x = nextX;
-        mob.z = nextZ;
-      } else if (!checkBlock) {
-        mob.x = nextX;
-        mob.z = nextZ;
-      }
-
-      // Ground check
-      const groundBlock = world.isSolid(Math.floor(mob.x), Math.floor(nextY), Math.floor(mob.z));
-      if (groundBlock) {
-        mob.y = Math.floor(nextY) + 1.0;
+      if (mob.vy <= 0 && circleOverlapsSolid(world, mob.x, nextY, mob.z, MOB_RADIUS, MOB_HEIGHT)) {
+        mob.y = Math.floor(mob.y) + 1;
         mob.vy = 0;
-        // Slimes jump!
-        if (mob.type === 'slime' && mob.isAggro && Math.random() < 0.05) {
-          mob.vy = 5.0;
-        }
+      } else if (mob.vy > 0 && !circleOverlapsSolid(world, mob.x, nextY, mob.z, MOB_RADIUS, MOB_HEIGHT)) {
+        mob.y = nextY;
+      } else if (mob.vy > 0) {
+        mob.vy = 0;
       } else {
         mob.y = nextY;
+      }
+
+      const dxStep = mob.vx * delta;
+      const dzStep = mob.vz * delta;
+      const canStepUp = mob.y - Math.floor(mob.y) < 1.05;
+      const tryMove = (x: number, z: number) => !circleOverlapsSolid(world, x, mob.y, z, MOB_RADIUS, MOB_HEIGHT);
+      if (Math.abs(dxStep) > 0.0001) {
+        if (tryMove(mob.x + dxStep, mob.z)) mob.x += dxStep;
+        else if (canStepUp && !circleOverlapsSolid(world, mob.x + dxStep, mob.y + 1, mob.z, MOB_RADIUS, MOB_HEIGHT)) mob.y = Math.floor(mob.y) + 1;
+        else mob.vx = 0;
+      }
+      if (Math.abs(dzStep) > 0.0001) {
+        if (tryMove(mob.x, mob.z + dzStep)) mob.z += dzStep;
+        else if (canStepUp && !circleOverlapsSolid(world, mob.x, mob.y + 1, mob.z + dzStep, MOB_RADIUS, MOB_HEIGHT)) mob.y = Math.floor(mob.y) + 1;
+        else mob.vz = 0;
+      }
+
+      // Slimes jump only when grounded and aggroed.
+      if (mob.type === 'slime' && mob.isAggro && mob.vy === 0 && Math.random() < 0.05) mob.vy = 5.0;
+
+      // Keep mob colliders outside the player collider. Attack range remains separate.
+      const playerDx = mob.x - playerPos.x;
+      const playerDz = mob.z - playerPos.z;
+      const playerDistance = Math.hypot(playerDx, playerDz);
+      const playerMinDistance = MOB_RADIUS + PLAYER_RADIUS;
+      if (playerDistance < playerMinDistance && Math.abs(mob.y - playerPos.y) < MOB_HEIGHT) {
+        const nx = playerDistance > 0.001 ? playerDx / playerDistance : 1;
+        const nz = playerDistance > 0.001 ? playerDz / playerDistance : 0;
+        mob.x = playerPos.x + nx * playerMinDistance;
+        mob.z = playerPos.z + nz * playerMinDistance;
+        mob.vx = 0;
+        mob.vz = 0;
       }
 
       // Update 3D mesh position
@@ -375,6 +411,40 @@ export class MobManager {
         }
       }
     });
+
+    // Broad-phase mob separation: only compare mobs in neighboring 1-block cells.
+    const cells = new Map<string, MobEntity[]>();
+    for (const mob of this.mobs) {
+      const key = `${Math.floor(mob.x)},${Math.floor(mob.z)}`;
+      const bucket = cells.get(key);
+      if (bucket) bucket.push(mob); else cells.set(key, [mob]);
+    }
+    for (const mob of this.mobs) {
+      const cellX = Math.floor(mob.x);
+      const cellZ = Math.floor(mob.z);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          const neighbors = cells.get(`${cellX + ox},${cellZ + oz}`);
+          if (!neighbors) continue;
+          for (const other of neighbors) {
+            if (other.id <= mob.id || Math.abs(other.y - mob.y) > MOB_HEIGHT) continue;
+            const dx = mob.x - other.x;
+            const dz = mob.z - other.z;
+            const dist = Math.hypot(dx, dz);
+            const minDist = MOB_RADIUS * 2;
+            if (dist > 0 && dist < minDist) {
+              const push = (minDist - dist) * 0.5;
+              mob.x += (dx / dist) * push;
+              mob.z += (dz / dist) * push;
+              other.x -= (dx / dist) * push;
+              other.z -= (dz / dist) * push;
+              mob.vx *= 0.8; mob.vz *= 0.8;
+              other.vx *= 0.8; other.vz *= 0.8;
+            }
+          }
+        }
+      }
+    }
 
     // 2. Update Dropped Items
     const remainingDrops: DroppedItemEntity[] = [];

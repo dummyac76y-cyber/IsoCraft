@@ -639,6 +639,9 @@ export class VoxelWorld {
   private lastPlayerChunkX: number = NaN;
   private lastPlayerChunkZ: number = NaN;
   private lastOcclusionCheck: number = 0;
+  private lastOcclusionPlayerX: number = NaN;
+  private lastOcclusionPlayerZ: number = NaN;
+  private lastOcclusionCameraAngle: number = NaN;
 
   constructor(seed: number = 42, preset: 'meadow' | 'canyon' | 'autumn' | 'mountain' | 'village' = 'meadow') {
     this.seed = seed;
@@ -1262,10 +1265,18 @@ export class VoxelWorld {
       });
     }
 
-    // Dynamic Occlusion & Interior Cutaway Calculation
+    // Dynamic occlusion is a camera/position-dependent system, not a per-frame system.
+    // Recompute only after meaningful movement or camera rotation, then rate-limit it.
     const now = performance.now();
-    if (now - this.lastOcclusionCheck > 120) {
+    const movedEnough = !Number.isFinite(this.lastOcclusionPlayerX) ||
+      Math.hypot(playerX - this.lastOcclusionPlayerX, playerZ - this.lastOcclusionPlayerZ) > 0.35;
+    const cameraChanged = !Number.isFinite(this.lastOcclusionCameraAngle) ||
+      Math.abs(cameraAngle - this.lastOcclusionCameraAngle) > 0.08;
+    if ((movedEnough || cameraChanged) && now - this.lastOcclusionCheck > 160) {
       this.lastOcclusionCheck = now;
+      this.lastOcclusionPlayerX = playerX;
+      this.lastOcclusionPlayerZ = playerZ;
+      this.lastOcclusionCameraAngle = cameraAngle;
       this.computeDynamicOcclusion(playerX, playerY, playerZ, cameraAngle);
     }
   }
@@ -1308,6 +1319,12 @@ export class VoxelWorld {
     const camDirZ = Math.cos(cameraAngle);
 
     const newOccluded = new Set<string>();
+    const isOccluder = (block: BlockType) => block === BlockType.WOOD_LOG ||
+      block === BlockType.LEAVES || block === BlockType.BRICK ||
+      block === BlockType.STONE_BRICKS || block === BlockType.GLASS ||
+      block === BlockType.WOOD_PLANKS || block === BlockType.BOOKSHELF ||
+      block === BlockType.CRAFTING_BENCH || block === BlockType.CHEST ||
+      block === BlockType.STONE || block === BlockType.COBBLESTONE;
 
     // Determine search radius based on vision setting:
     // 1.0 (100%): maximum visibility, aggressive cutaway
@@ -1328,7 +1345,7 @@ export class VoxelWorld {
           // Check wall blocks from player foot level upwards
           for (let by = py; by <= py + 6; by++) {
             const b = this.getBlock(bx, by, bz);
-            if (b === BlockType.AIR || b === BlockType.WATER) continue;
+            if (b === BlockType.AIR || b === BlockType.WATER || !isOccluder(b)) continue;
 
             // Never occlude floors beneath or at foot level (wood planks, cobblestone on floor)
             if (by < py) continue;
@@ -1367,11 +1384,18 @@ export class VoxelWorld {
     }
 
     if (changed) {
+      const affectedChunks = new Set<string>();
+      const collectChunks = (coords: Set<string>) => {
+        coords.forEach(key => {
+          const [x, , z] = key.split(',').map(Number);
+          affectedChunks.add(this.getChunkKey(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE)));
+        });
+      };
+      collectChunks(this.occludedCoords);
+      collectChunks(newOccluded);
       this.occludedCoords = newOccluded;
-      // Rebuild meshes of loaded chunks with the new occlusion cutaway
-      this.chunks.forEach(chunk => {
-        chunk.rebuild(this, this.occludedCoords);
-      });
+      // Rebuild only chunks whose cutaway membership changed.
+      affectedChunks.forEach(key => this.chunks.get(key)?.rebuild(this, this.occludedCoords));
     }
   }
 
