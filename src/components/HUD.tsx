@@ -80,6 +80,7 @@ export const HUD: React.FC<HUDProps> = ({
         <div className="menu-title"><span>PAUSE MENU</span><button onClick={() => setMenuOpen(false)} aria-label="Close menu"><X size={15} /></button></div>
         <button className="menu-action" onClick={() => { setMenuOpen(false); onOpenInventory(); }}><Backpack size={16} /> Inventory <kbd>I</kbd></button>
         <button className="menu-action" onClick={() => { setMenuOpen(false); onOpenCustomizer(); }}><User size={16} /> Character <kbd>C</kbd></button>
+        <button className="menu-action" onClick={() => { setMenuOpen(false); onOpenWorldModal(); }}><Sparkles size={16} /> Realm Generator</button>
         <button className="menu-action" onClick={() => { setShowMinimap(v => !v); announce(showMinimap ? 'Map hidden' : 'Map revealed'); }}><Map size={16} /> {showMinimap ? 'Hide minimap' : 'Show minimap'}</button>
         <button className="menu-action" onClick={() => { setIsMuted(!isMuted); announce(isMuted ? 'Sound on' : 'Sound muted'); }}>{isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />} Sound <span className="menu-value">{isMuted ? 'OFF' : 'ON'}</span></button>
         <button className="menu-action" onClick={() => { setDayTime(prev => (prev + .25) % 1); announce(isNight ? 'Dawn breaks' : 'Night falls'); }}>{isNight ? <Moon size={16} /> : <Sun size={16} />} Time of day</button>

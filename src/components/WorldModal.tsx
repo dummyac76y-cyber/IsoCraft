@@ -42,10 +42,18 @@ export const WorldModal: React.FC<WorldModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Security: Sanitize seed to safe positive integer range (1 to 999,999,999) to prevent NaN/DoS issues
+  const sanitizeSeed = (val: number | string): number => {
+    const parsed = typeof val === 'number' ? val : parseInt(val, 10);
+    if (isNaN(parsed) || !isFinite(parsed)) return 1;
+    return Math.min(999999999, Math.max(1, Math.abs(Math.floor(parsed))));
+  };
+
   const handleGenerate = () => {
     if (!worldRef.current) return;
     sound.playLevelUp();
-    worldRef.current.generate(selectedPreset, seed);
+    const safeSeed = sanitizeSeed(seed);
+    worldRef.current.generate(selectedPreset, safeSeed);
     onWorldRegenerated();
     onClose();
   };
@@ -116,8 +124,20 @@ export const WorldModal: React.FC<WorldModalProps> = ({
             <div className="flex gap-2">
               <input
                 type="number"
+                min={1}
+                max={999999999}
                 value={seed}
-                onChange={e => setSeed(parseInt(e.target.value) || 0)}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val === '') {
+                    setSeed(0);
+                  } else {
+                    setSeed(sanitizeSeed(val));
+                  }
+                }}
+                onBlur={() => {
+                  if (seed < 1) setSeed(1);
+                }}
                 className="pixel-box-slot flex-1 px-3 py-2 text-[10px] text-[#f5eedc] font-mono outline-none"
               />
               <button

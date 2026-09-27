@@ -640,8 +640,14 @@ export class VoxelWorld {
   private lastPlayerChunkZ: number = NaN;
   private lastOcclusionCheck: number = 0;
 
+  // Security: Sanitize seed input defensively to prevent non-finite/NaN/negative numbers from corrupting noise generation and causing DoS
+  private sanitizeSeed(s: number): number {
+    if (typeof s !== 'number' || !Number.isFinite(s) || Number.isNaN(s)) return 42;
+    return Math.max(1, Math.abs(Math.floor(s)) % 1000000000);
+  }
+
   constructor(seed: number = 42, preset: 'meadow' | 'canyon' | 'autumn' | 'mountain' | 'village' = 'meadow') {
-    this.seed = seed;
+    this.seed = this.sanitizeSeed(seed);
     this.preset = preset;
     this.group = new THREE.Group();
     this.group.name = 'InfiniteVoxelWorld';
@@ -650,7 +656,7 @@ export class VoxelWorld {
   // Reset or regenerate realm
   public generate(preset: 'meadow' | 'canyon' | 'autumn' | 'mountain' | 'village' = 'meadow', seed: number = 42) {
     this.preset = preset;
-    this.seed = seed;
+    this.seed = this.sanitizeSeed(seed);
     this.modifiedBlocks.clear();
     this.chestContents.clear();
     this.lightSources = [];
