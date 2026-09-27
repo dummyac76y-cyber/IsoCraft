@@ -137,7 +137,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -207,8 +207,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const sunLight = new THREE.DirectionalLight(0xfffaec, 1.25);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.mapSize.width = 1024;
+    sunLight.shadow.mapSize.height = 1024;
     sunLight.shadow.camera.near = 1;
     sunLight.shadow.camera.far = 160;
     const d = 36;
@@ -373,6 +373,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Camera follow position (smooth damping)
     const cameraFocusPos = new THREE.Vector3().copy(playerPos);
+    const targetCamPos = new THREE.Vector3();
+    const hitCenter = new THREE.Vector3();
+    const dayBackground = new THREE.Color();
+    const sunsetBackground = new THREE.Color(0xf67838);
+    const nightBackground = new THREE.Color(0x0c152a);
+    let lastCrackStage = 0;
 
     // --- Key Event Listeners ---
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1064,9 +1070,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         };
       }
 
-      // Stream infinite chunks and explore terrain
-      world.update(playerPos.x, playerPos.z, playerPos.y, cameraAngleRef.current, blockOpacityRef.current);
-
       // Camera auto-rotate follow
       const isMining = isMouseDown && mouseButton === 0;
       if (autoRotateCameraRef.current && isMoving && !isMiddleDragging && !isMining) {
@@ -1104,7 +1107,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const camOffsetY = Math.sin(camElevation) * camDistance;
       const camOffsetZ = Math.cos(camAngle) * Math.cos(camElevation) * camDistance;
 
-      const targetCamPos = new THREE.Vector3(
+      targetCamPos.set(
         cameraFocusPos.x + camOffsetX,
         cameraFocusPos.y + camOffsetY,
         cameraFocusPos.z + camOffsetZ
@@ -1242,7 +1245,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       currentHit = world.raycast(raycaster);
 
       if (currentHit) {
-        const distToHit = playerPos.distanceTo(new THREE.Vector3(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5));
+        hitCenter.set(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5);
+        const distToHit = playerPos.distanceTo(hitCenter);
 
         if (distToHit <= 6.5) {
           highlightBox.visible = true;
@@ -1277,6 +1281,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             if (!miningBlockCoords || miningBlockCoords.x !== bx || miningBlockCoords.y !== by || miningBlockCoords.z !== bz) {
               miningBlockCoords = { x: bx, y: by, z: bz };
               miningProgress = 0;
+              lastCrackStage = 0;
             }
 
             const blockDef = BLOCK_DEFS[currentHit.blockType];
@@ -1296,9 +1301,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             crackMesh.position.set(bx + 0.5, by + 0.5, bz + 0.5);
 
             const crackStage = Math.min(4, Math.floor(miningProgress * 4) + 1);
-            (crackMat.map as THREE.CanvasTexture).dispose();
-            crackMat.map = generateCrackTexture(crackStage);
-            crackMat.needsUpdate = true;
+            if (crackStage !== lastCrackStage) {
+              (crackMat.map as THREE.CanvasTexture).dispose();
+              crackMat.map = generateCrackTexture(crackStage);
+              crackMat.needsUpdate = true;
+              lastCrackStage = crackStage;
+            }
 
             if (Math.random() < 0.15) {
               sound.playMine();
@@ -1310,6 +1318,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               crackMesh.visible = false;
               miningBlockCoords = null;
               miningProgress = 0;
+              lastCrackStage = 0;
 
               const def = BLOCK_DEFS[brokenType];
               if (def?.dropItemId) {
