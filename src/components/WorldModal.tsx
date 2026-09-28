@@ -114,10 +114,20 @@ export const WorldModal: React.FC<WorldModalProps> = ({
           <div className="pixel-box-stone p-3">
             <label className="text-[9px] text-[#fde047] block mb-2 uppercase">INFINITE WORLD SEED</label>
             <div className="flex gap-2">
+              {/* Security: Validate and bound numeric seed input to prevent NaN/Overflow DoS in math functions */}
               <input
                 type="number"
+                min="-999999999"
+                max="999999999"
                 value={seed}
-                onChange={e => setSeed(parseInt(e.target.value) || 0)}
+                onChange={e => {
+                  const val = parseInt(e.target.value, 10);
+                  if (isNaN(val)) {
+                    setSeed(0);
+                  } else {
+                    setSeed(Math.min(999999999, Math.max(-999999999, val)));
+                  }
+                }}
                 className="pixel-box-slot flex-1 px-3 py-2 text-[10px] text-[#f5eedc] font-mono outline-none"
               />
               <button
