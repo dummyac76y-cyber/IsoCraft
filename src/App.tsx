@@ -475,7 +475,9 @@ export default function App() {
             <div className="px-boot__track">
               <div className="px-boot__fill" style={{ width: `${bootPct}%` }} />
             </div>
-            <span className="px-boot__pct">{bootPct}%</span>
+            <span className="px-boot__pct">
+              {bootPct}%{bootPct < 100 ? ' - shaping the valley' : ''}
+            </span>
           </div>
         </div>
       )}

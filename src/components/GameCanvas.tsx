@@ -211,7 +211,25 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     scene.add(character.group);
     // 100 once the body is in, or as soon as we know it is not coming, so the
     // loader clears either way.
-    character.whenBodyReady().then(() => onBootProgress?.(100));
+    character.whenBodyReady().then(ok => {
+      onBootProgress?.(100);
+      console.log('[character] body state', character.getBodyState(), character.diagnose());
+      if (!ok) {
+        console.warn('[character] standing in for the Kenney body; the world is playable');
+      }
+    });
+
+    // One handle for the console: __isocraft.diag() answers "is the player
+    // here, and why not" without a debugger attached.
+    (window as unknown as { __isocraft?: unknown }).__isocraft = {
+      diag: () => ({
+        character: character.diagnose(),
+        player: playerPos.toArray().map(n => Number(n.toFixed(2))),
+        camera: camera.position.toArray().map(n => Number(n.toFixed(2))),
+        cameraAngle: Number(cameraAngleRef.current.toFixed(3)),
+        zoom: zoomLevelRef.current
+      })
+    };
 
     // --- Mobs & Drops Manager ---
     const mobManager = new MobManager();

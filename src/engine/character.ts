@@ -69,6 +69,8 @@ export class CharacterModel {
    */
   private bodyReady: Promise<boolean>;
   private markBodyReady: (ok: boolean) => void = () => {};
+  /** 'loading' | 'ready' | 'failed' - surfaced to the boot screen. */
+  private bodyState: 'loading' | 'ready' | 'failed' = 'loading';
 
   // Animation state
   private attackProgress: number = 0;
@@ -203,6 +205,7 @@ export class CharacterModel {
           // No idle clip: nothing will ever animate, but the player still has
           // to be visible, so keep the stand-in body and say so out loud.
           console.warn('[character] no idle clip in', variant, '- using placeholder body');
+          this.bodyState = 'failed';
           this.markBodyReady(false);
           return;
         }
@@ -222,6 +225,7 @@ export class CharacterModel {
 
         this.bodyHolder.add(instance.root);
         this.character = instance;
+        this.bodyState = 'ready';
         this.markBodyReady(true);
         this.bodyMaterials.forEach(m => this.baseColors.set(m, m.color.clone()));
         this.applyArmorTint();
@@ -261,6 +265,7 @@ export class CharacterModel {
         // Asset unavailable: keep the placeholder body, but never quietly. A
         // missing model used to leave the player looking at an empty world.
         console.error('[character] Kenney body failed to load:', variant, err);
+        this.bodyState = 'failed';
         this.markBodyReady(false);
       });
   }
@@ -275,6 +280,32 @@ export class CharacterModel {
         m.color.copy(base).lerp(new THREE.Color(tint), 0.28);
       }
     });
+  }
+
+  /** What the boot screen and the dev console read. */
+  public getBodyState(): 'loading' | 'ready' | 'failed' {
+    return this.bodyState;
+  }
+
+  /**
+   * A plain-object snapshot of the body: enough to tell "never loaded" from
+   * "loaded but zero-sized" from "loaded and off screen" without a debugger.
+   */
+  public diagnose(): Record<string, unknown> {
+    const body = this.bodyHolder.children[0];
+    const box = new THREE.Box3().setFromObject(this.group);
+    const size = box.getSize(new THREE.Vector3());
+    return {
+      state: this.bodyState,
+      variant: this.desiredVariant,
+      usingPlaceholder: this.placeholder !== null,
+      bodyChildren: this.bodyHolder.children.length,
+      bodyType: body ? body.type : 'none',
+      bodyScale: body ? body.scale.x : 0,
+      worldPos: this.group.position.toArray().map(n => Number(n.toFixed(2))),
+      groupBoxSize: [size.x, size.y, size.z].map(n => Number(n.toFixed(2))),
+      visible: this.group.visible
+    };
   }
 
   /**
