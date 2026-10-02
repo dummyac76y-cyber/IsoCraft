@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { GameCanvas } from './components/GameCanvas';
+import { GameCanvas, SharedPerf } from './components/GameCanvas';
 import { HUD } from './components/HUD';
 import { InventoryModal } from './components/InventoryModal';
 import { CharacterModal } from './components/CharacterModal';
@@ -168,6 +168,10 @@ export default function App() {
   // One shared touch bus: the on-screen controls write here, GameCanvas reads
   // it inside its animation loop, so touch input never triggers a re-render.
   const touchInputRef = useRef(createTouchInput());
+  // Frame timing the HUD counter samples. A plain ref: the loop writes to it
+  // every frame and React never re-renders because of it.
+  const perfRef = useRef<SharedPerf>({ fps: 0, smoothMs: 0, frames: 0, accum: 0, drawCalls: 0, triangles: 0 });
+
   const [isTouchDevice, setIsTouchDevice] = useState(
     () => typeof window !== 'undefined' &&
       (window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0)
@@ -202,44 +206,134 @@ export default function App() {
   }, [isMuted]);
 
   // Hotkey listener for inventory, customizer, hotbar slots 1-9, Q/E/R, and +/- zoom
+  // Menu-level bindings. Movement, mining and camera drag live in GameCanvas,
+  // which owns the input listeners on the canvas; everything that opens a panel
+  // or flips a setting is handled here.
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isDead) return;
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (e.repeat && e.code !== 'Tab') return;
+      // While dead only Escape is allowed through, so panels cannot be opened
+      // over the death screen.
+      if (isDead && e.code !== 'Escape') return;
 
-      if (e.code === 'Escape') {
-        setIsHudMenuOpen(false);
+      switch (e.code) {
+        case 'Escape':
+          // Escape always backs out of the topmost thing: pause menu first,
+          // then whatever modal is open.
+          if (isHudMenuOpen) {
+            setIsHudMenuOpen(false);
+          } else if (isInventoryOpen) {
+            setIsInventoryOpen(false);
+          } else if (isCustomizerOpen) {
+            setIsCustomizerOpen(false);
+          } else if (isWorldModalOpen) {
+            setIsWorldModalOpen(false);
+          } else if (isHelpOpen) {
+            setIsHelpOpen(false);
+          } else {
+            setIsHudMenuOpen(true);
+          }
+          return;
+
+        case 'Tab':
+          e.preventDefault();
+          setIsInventoryOpen(prev => !prev);
+          return;
+
+        case 'KeyI':
+          setIsInventoryOpen(prev => !prev);
+          return;
+
+        case 'KeyC':
+          setIsCustomizerOpen(prev => !prev);
+          return;
+
+        case 'KeyH':
+          setIsHelpOpen(prev => !prev);
+          return;
+
+        case 'KeyQ':
+          handleRotateCamera(-1);
+          return;
+
+        case 'KeyX':
+          handleRotateCamera(1);
+          return;
+
+        case 'KeyR':
+          handleResetCamera();
+          return;
+
+        case 'Equal':
+        case 'NumpadAdd':
+          handleZoom(-3);
+          return;
+
+        case 'Minus':
+        case 'NumpadSubtract':
+          handleZoom(3);
+          return;
+
+        case 'KeyF':
+          toggleFullscreen();
+          notify(isFullscreen ? 'Fullscreen off' : 'Fullscreen on');
+          return;
+
+        case 'KeyM':
+          setShowMinimap(prev => !prev);
+          notify(showMinimap ? 'Map hidden' : 'Map shown');
+          return;
+
+        case 'KeyN':
+          setIsMuted(prev => {
+            notify(prev ? 'Sound on' : 'Sound off');
+            return !prev;
+          });
+          return;
+
+        case 'KeyG':
+          setGameMode(prev => {
+            notify(prev === 'survival' ? 'Creative mode' : 'Survival mode');
+            return prev === 'survival' ? 'creative' : 'survival';
+          });
+          return;
+
+        case 'KeyV':
+          handleCycleVisionOpacity();
+          return;
+
+        case 'KeyO':
+          handleToggleAutoRotateCamera();
+          return;
+
+        case 'KeyB':
+          setTimeOffsetHours(prev => ((((prev + 24) % 24) + 24) % 24));
+          notify('Jumped forward one day');
+          return;
+
+        default:
+          break;
+      }
+
+      // New world is Shift+W so it cannot fire while walking
+      if (e.code === 'KeyW' && e.shiftKey) {
+        setIsWorldModalOpen(true);
         return;
       }
 
-      if (e.code === 'KeyI' || e.code === 'Tab') {
-        if (e.code === 'Tab') e.preventDefault();
-        setIsInventoryOpen(prev => !prev);
-      } else if (e.code === 'KeyQ') {
-        handleRotateCamera(-1);
-      } else if (e.code === 'KeyE') {
-        handleRotateCamera(1);
-      } else if (e.code === 'KeyR') {
-        handleResetCamera();
-      } else if (e.code === 'KeyC') {
-        setIsCustomizerOpen(prev => !prev);
-      } else if (e.code === 'KeyH') {
-        setIsHelpOpen(prev => !prev);
-      } else if (e.code === 'Equal' || e.code === 'NumpadAdd') {
-        handleZoom(-3);
-      } else if (e.code === 'Minus' || e.code === 'NumpadSubtract') {
-        handleZoom(3);
-      } else if (e.code.startsWith('Digit')) {
-        const num = parseInt(e.code.replace('Digit', ''));
-        if (num >= 1 && num <= 9) {
-          setActiveSlot(num - 1);
-        }
+      if (e.code.startsWith('Digit')) {
+        const num = parseInt(e.code.replace('Digit', ''), 10);
+        if (num >= 1 && num <= 9) setActiveSlot(num - 1);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDead]);
+  }, [
+    isDead, isHudMenuOpen, isInventoryOpen, isCustomizerOpen, isWorldModalOpen, isHelpOpen,
+    isFullscreen, showMinimap, notify,
+  ]);
 
   // Handlers for death & respawn
   const handlePlayerDied = (cause: string) => {
@@ -380,6 +474,7 @@ export default function App() {
         touchInput={touchInputRef.current}
         onNpcDialogue={handleNpcDialogue}
         talkApiRef={talkApiRef}
+        perfRef={perfRef}
       />
 
       {/* Virtual joystick + action buttons for phones and tablets */}
@@ -404,6 +499,7 @@ export default function App() {
         playerPosRef={playerPosRef}
         cameraAngle={cameraAngle}
         playerName={PLAYER_NAME}
+        perfRef={perfRef}
       />
 
       {/* Toast sits above the world but below the pause menu */}

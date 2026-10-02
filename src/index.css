@@ -1414,3 +1414,93 @@
     bottom: 44px;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Frame rate counter
+   -------------------------------------------------------------------------- */
+
+.hud-fps {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  background: rgba(23, 21, 18, 0.82);
+  border: 1px solid var(--px-line);
+  clip-path: polygon(
+    3px 0, calc(100% - 3px) 0, calc(100% - 3px) 1px, 100% 1px,
+    100% calc(100% - 3px), calc(100% - 1px) calc(100% - 3px), calc(100% - 1px) 100%,
+    3px 100%, 1px calc(100% - 1px), 0 calc(100% - 3px), 0 3px, 3px 3px
+  );
+}
+
+.hud-fps__detail {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .hud-fps__detail {
+    display: inline;
+  }
+}
+
+/* On a phone the bottom-left corner belongs to the joystick, so the counter
+   sits above the sprint button instead of under a thumb. */
+@media (max-width: 560px) {
+  .hud-fps {
+    left: max(10px, env(safe-area-inset-left));
+    bottom: 228px;
+  }
+
+  .hud-fps__detail {
+    display: none;
+  }
+}
+
+@media (max-height: 480px) {
+  .hud-fps {
+    bottom: 196px;
+  }
+}
+
+/* Menu button: label plus its keycap, so the binding is readable in place */
+.px-menu-btn {
+  gap: 5px;
+  height: 28px;
+}
+
+.px-menu-btn.is-open {
+  background: var(--px-panel-hi);
+  border-color: var(--px-gold);
+  color: var(--px-gold);
+}
+
+.px-menu-btn .px-key {
+  margin-right: 0;
+  margin-left: 2px;
+}
+
+/* Keyboard equivalent printed on the touch buttons, so a phone player can see
+   what the desktop keys do without a manual. */
+.px-action__key {
+  font-family: 'Silkscreen', monospace;
+  font-size: 7px;
+  line-height: 8px;
+  letter-spacing: 0;
+  color: var(--px-ink-dim);
+  border: 1px solid var(--px-line);
+  padding: 0 2px;
+}
+
+.px-action.is-down .px-action__key,
+.px-action:active .px-action__key {
+  color: var(--px-gold);
+  border-color: var(--px-gold);
+}
+
+.px-sprint .px-action__key {
+  margin-left: auto;
+}

@@ -223,8 +223,8 @@ export function iconForItem(item: { id: string; type: string }): PixelIconName {
     case 'stone_bricks':
     case 'bricks':
       return 'block';
-    case 'crafting_bench':
-      return 'gear';
+    case 'bookshelf':
+      return 'book';
     case 'bookshelf':
       return 'book';
     default:

@@ -1,6 +1,7 @@
 import React from 'react';
 import { PixelPanel } from './PixelPanel';
 import { PixelIcon } from './PixelIcon';
+import { keycap } from '../engine/keybinds';
 
 interface PauseMenuProps {
   open: boolean;
@@ -68,12 +69,13 @@ export function PauseMenu(props: PauseMenuProps) {
         >
           <PixelIcon name={props.gameMode === 'survival' ? 'skull' : 'spark'} size={11} /> Mode
           <span className="px-row__meta">{props.gameMode}</span>
+          <span className="px-key">{keycap('mode')}</span>
         </button>
         <button type="button" className="px-row" onClick={leave(props.onOpenInventory)}>
-          <PixelIcon name="bag" size={11} /> Bag <span className="px-key">I</span>
+          <PixelIcon name="bag" size={11} /> Bag <span className="px-key">{keycap('bag')}</span>
         </button>
         <button type="button" className="px-row" onClick={leave(props.onOpenCustomizer)}>
-          <PixelIcon name="user" size={11} /> Character <span className="px-key">C</span>
+          <PixelIcon name="user" size={11} /> Character <span className="px-key">{keycap('character')}</span>
         </button>
 
         <div className="my-1 h-px" style={{ background: 'var(--px-line)' }} />
@@ -90,6 +92,7 @@ export function PauseMenu(props: PauseMenuProps) {
           <span className={`px-row__meta ${props.showMinimap ? 'is-on' : ''}`}>
             {props.showMinimap ? 'On' : 'Off'}
           </span>
+          <span className="px-key">{keycap('map')}</span>
         </button>
         <button
           type="button"
@@ -103,18 +106,20 @@ export function PauseMenu(props: PauseMenuProps) {
           <span className={`px-row__meta ${!props.isMuted ? 'is-on' : ''}`}>
             {props.isMuted ? 'Off' : 'On'}
           </span>
+          <span className="px-key">{keycap('sound')}</span>
         </button>
         <button
           type="button"
           className="px-row"
           onClick={leave(props.onResetCamera)}
         >
-          <PixelIcon name="target" size={11} /> Recentre <span className="px-key">R</span>
+          <PixelIcon name="target" size={11} /> Recentre <span className="px-key">{keycap('recenter')}</span>
         </button>
 
         <div className="px-row" style={{ cursor: 'default' }}>
           <PixelIcon name="compass" size={11} /> Zoom
-          <span className="px-row__meta flex items-center gap-1">
+          <span className="px-key ml-auto">{keycap('zoom')}</span>
+          <span className="px-row__meta flex items-center gap-1" style={{ marginLeft: 0 }}>
             <button
               type="button"
               className="px-icon-btn"
@@ -154,6 +159,7 @@ export function PauseMenu(props: PauseMenuProps) {
           <span className={`px-row__meta ${props.autoRotateCamera ? 'is-on' : ''}`}>
             {props.autoRotateCamera ? props.autoRotateSpeed : 'Off'}
           </span>
+          <span className="px-key">{keycap('autoRotate')}</span>
         </button>
         <button
           type="button"
@@ -163,6 +169,7 @@ export function PauseMenu(props: PauseMenuProps) {
         >
           <PixelIcon name="spark" size={11} /> Vision
           <span className="px-row__meta">{Math.round(props.visionOpacity * 100)}%</span>
+          <span className="px-key">{keycap('vision')}</span>
         </button>
 
         <div className="my-1 h-px" style={{ background: 'var(--px-line)' }} />
@@ -179,6 +186,7 @@ export function PauseMenu(props: PauseMenuProps) {
           <span className="px-row__meta">
             {props.timeOffsetHours === 0 ? 'Real' : `+${props.timeOffsetHours % 24}H`}
           </span>
+          <span className="px-key">{keycap('skipDay')}</span>
         </button>
         <button
           type="button"
@@ -198,12 +206,14 @@ export function PauseMenu(props: PauseMenuProps) {
           <span className={`px-row__meta ${props.isFullscreen ? 'is-on' : ''}`}>
             {props.isFullscreenSupported ? (props.isFullscreen ? 'On' : 'Off') : 'N/A'}
           </span>
+          <span className="px-key">{keycap('fullscreen')}</span>
         </button>
         <button type="button" className="px-row" onClick={leave(props.onOpenWorldModal)}>
           <PixelIcon name="home" size={11} /> New world
+          <span className="px-key">Shift+{keycap('newWorld')}</span>
         </button>
         <button type="button" className="px-row" onClick={leave(props.onOpenHelp)}>
-          <PixelIcon name="book" size={11} /> Manual <span className="px-key">H</span>
+          <PixelIcon name="book" size={11} /> Manual <span className="px-key">{keycap('manual')}</span>
         </button>
       </PixelPanel>
     </div>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { KEYBINDS, Binding } from '../engine/keybinds';
 import { PixelModal } from './PixelModal';
 import { PixelIcon, PixelIconName } from './PixelIcon';
 
@@ -7,40 +8,30 @@ interface HelpModalProps {
   onClose: () => void;
 }
 
-const CORE_BINDS: Array<[string, string]> = [
-  ['Move hero', 'W A S D'],
-  ['Sprint', 'Hold Shift'],
-  ['Jump / swim up', 'Space'],
-  ['Mine block / attack', 'Left click'],
-  ['Place block / use', 'Right click'],
-  ['Talk, chests, benches', 'E'],
-  ['Auto-pathfind', 'Shift + click'],
-  ['Open backpack', 'I or Tab'],
-  ['Hotbar slots', '1 – 9']
-];
+const GROUP_ICON: Record<Binding['group'], PixelIconName> = {
+  Move: 'boot',
+  World: 'pick',
+  Camera: 'compass',
+  Menu: 'gear'
+};
 
-const CAMERA_BINDS: Array<[string, string]> = [
-  ['Rotate view', 'Q / E'],
-  ['Reset perspective', 'R'],
-  ['Orbit and tilt', 'Hold middle-drag'],
-  ['Zoom (60% – 150%)', 'Wheel or +/-']
-];
-
-/** Two-column bind list: the action on the left, pixel keycaps on the right. */
-function BindTable({ rows }: { rows: Array<[string, string]> }) {
+/**
+ * The manual is generated from the same table the buttons read their labels
+ * from, so a binding can never be documented one way and behave another.
+ */
+function BindTable({ rows }: { rows: Binding[] }) {
   return (
     <div className="px-binds">
-      {rows.map(([label, keys]) => (
-        <div key={label} className="px-binds__row">
-          <span>{label}</span>
+      {rows.map(row => (
+        <div key={row.id} className="px-binds__row">
+          <span>{row.label}</span>
           <span className="flex items-center gap-1">
-            {keys.split(/(\s*[+–]\s*|\s*or\s*)/).filter(Boolean).map((part, i) =>
-              /^[+–]|or/.test(part.trim()) ? (
-                <span key={i} className="px-num">{part.trim()}</span>
-              ) : (
-                <span key={i} className="px-key">{part.trim()}</span>
-              )
-            )}
+            {row.keys.map((k, i) => (
+              <React.Fragment key={`${row.id}-${k}`}>
+                {i > 0 && <span className="px-num">+</span>}
+                <span className="px-key">{k}</span>
+              </React.Fragment>
+            ))}
           </span>
         </div>
       ))}
@@ -48,31 +39,28 @@ function BindTable({ rows }: { rows: Array<[string, string]> }) {
   );
 }
 
-function Section({ icon, title, tone = 'gold', children }: {
-  icon: PixelIconName;
-  title: string;
-  tone?: 'gold' | 'green';
-  children: React.ReactNode;
-}) {
+function Section({ group, children }: { group: Binding['group']; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
       <span className="px-label flex items-center gap-2">
-        <span style={{ color: tone === 'gold' ? 'var(--px-gold)' : 'var(--px-energy)' }} aria-hidden>
-          <PixelIcon name={icon} size={11} />
+        <span style={{ color: 'var(--px-gold)' }} aria-hidden>
+          <PixelIcon name={GROUP_ICON[group]} size={11} />
         </span>
-        {title}
+        {group}
       </span>
       {children}
     </section>
   );
 }
 
+const GROUPS: Binding['group'][] = ['Move', 'World', 'Camera', 'Menu'];
+
 export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => (
   <PixelModal
     isOpen={isOpen}
     onClose={onClose}
     title="Adventurer's manual"
-    subtitle="Controls and how the world works"
+    subtitle="Every control, straight from the binding table"
     icon="book"
     width="max-w-2xl"
     footer={
@@ -82,13 +70,11 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => (
       </button>
     }
   >
-    <Section icon="boot" title="Movement & world">
-      <BindTable rows={CORE_BINDS} />
-    </Section>
-
-    <Section icon="compass" title="Camera">
-      <BindTable rows={CAMERA_BINDS} />
-    </Section>
+    {GROUPS.map(group => (
+      <Section key={group} group={group}>
+        <BindTable rows={KEYBINDS.filter(b => b.group === group)} />
+      </Section>
+    ))}
 
     <section className="px-well flex flex-col gap-2">
       <span className="px-label flex items-center gap-2">
@@ -100,25 +86,30 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => (
       <p className="px-copy">
         The stick on the left drives movement, with <b>SPRINT</b> just above it. On the right tap
         <b> TALK</b>, <b>BUILD</b>, <b>MINE</b> or <b>GO</b>, and jump from the wide pad underneath.
-        Tap the world to aim. The column on the far right rotates, re-centres and zooms the view.
+        Swipe across the world to swing the camera around. Every touch button carries the
+        keyboard key that does the same thing, so the two stay in step.
       </p>
     </section>
 
-    <Section icon="spark" title="Occlusion & endless terrain" tone="green">
-      <div className="px-well flex flex-col gap-2">
-        <p className="px-copy">
-          <b>Clear view.</b> Walls and terrain between you and the camera fade away, so your hero,
-          chests and NPCs are never hidden behind a cliff.
-        </p>
-        <p className="px-copy">
-          <b>Endless world.</b> Terrain, biomes, rivers, caves, ore seams, camps and shrines stream
-          in around you in every direction. There are no borders.
-        </p>
-        <p className="px-copy">
-          <b>Your clock.</b> The sun follows the time on your device, so dawn and dusk land when they
-          do outside. Skip ahead a day from the pause menu.
-        </p>
-      </div>
-    </Section>
+    <section className="px-well flex flex-col gap-2">
+      <span className="px-label flex items-center gap-2">
+        <span style={{ color: 'var(--px-energy)' }} aria-hidden>
+          <PixelIcon name="spark" size={11} />
+        </span>
+        The world
+      </span>
+      <p className="px-copy">
+        <b>Endless.</b> Terrain, biomes, rivers, caves and ore seams stream in around you in every
+        direction. There are no borders and no landmarks: the valley is all there is.
+      </p>
+      <p className="px-copy">
+        <b>Your clock.</b> The sun follows the time on your device, so dawn and dusk land when they
+        do outside. Skip ahead a day from the pause menu.
+      </p>
+      <p className="px-copy">
+        <b>Your bag starts empty.</b> Break stone, ore or foliage and what you gather lands there,
+        ready to be placed again.
+      </p>
+    </section>
   </PixelModal>
 );

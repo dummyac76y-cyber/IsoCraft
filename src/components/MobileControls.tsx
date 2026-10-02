@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clearTouchEdges, TouchInputState } from '../engine/input';
 import { PixelIcon, PixelIconName } from './PixelIcon';
+import { keycap } from '../engine/keybinds';
 
 interface MobileControlsProps {
   /** Shared mutable input bus owned by App; see src/engine/input.ts. */
@@ -110,6 +111,7 @@ export function MobileControls({ input, visible, onOrbitCamera }: MobileControls
     hold: HoldName,
     icon: PixelIconName,
     label: string,
+    bindingId: string,
     className = ''
   ) => (
     <button
@@ -128,6 +130,8 @@ export function MobileControls({ input, visible, onOrbitCamera }: MobileControls
     >
       <PixelIcon name={icon} size={16} />
       <span className="px-label" style={{ fontSize: 6 }}>{label}</span>
+      {/* The key that does the same thing on a keyboard, printed on the button */}
+      <span className="px-action__key">{keycap(bindingId)}</span>
     </button>
   );
 
@@ -237,15 +241,16 @@ export function MobileControls({ input, visible, onOrbitCamera }: MobileControls
         >
           <PixelIcon name="boot" size={10} />
           Sprint
+          <span className="px-action__key">{keycap('sprint')}</span>
         </button>
 
         {/* Actions: mining is the primary verb, so it leads the cluster */}
         <div className="px-actions">
-          {action('interact', 'hand', 'Talk')}
-          {action('place', 'block', 'Build')}
-          {action('mine', 'pick', 'Mine', 'px-action--primary')}
-          {action('pathfind', 'arrow', 'Go')}
-          {action('jump', 'jump', 'Jump', 'px-action--wide')}
+          {action('interact', 'hand', 'Talk', 'interact')}
+          {action('place', 'block', 'Build', 'place')}
+          {action('mine', 'pick', 'Mine', 'mine', 'px-action--primary')}
+          {action('pathfind', 'arrow', 'Go', 'pathfind')}
+          {action('jump', 'jump', 'Jump', 'jump', 'px-action--wide')}
         </div>
 
         {/* Camera column, hugging the right edge */}

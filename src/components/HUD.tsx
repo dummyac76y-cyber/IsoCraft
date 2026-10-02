@@ -8,6 +8,9 @@ import { QuestTracker } from './hud/QuestTracker';
 import { Hotbar } from './hud/Hotbar';
 import { ItemTooltip } from './hud/ItemTooltip';
 import { IsometricMinimap } from './IsometricMinimap';
+import { FpsCounter } from './FpsCounter';
+import { SharedPerf } from './GameCanvas';
+import { binding, keycap } from '../engine/keybinds';
 
 interface HUDProps {
   playerStats: PlayerStats;
@@ -25,6 +28,8 @@ interface HUDProps {
   cameraAngle: number;
   playerName?: string;
   objective?: { title: string; detail: string; progress?: string };
+  /** Frame timing written by the game loop; read by the counter. */
+  perfRef: React.MutableRefObject<SharedPerf>;
 }
 
 /**
@@ -39,7 +44,7 @@ export const HUD: React.FC<HUDProps> = ({
   playerStats, inventory, activeSlot, setActiveSlot, dayTime,
   onOpenInventory,
   menuOpen, setMenuOpen, showMinimap,
-  worldRef, playerPosRef, cameraAngle,
+  worldRef, playerPosRef, cameraAngle, perfRef,
   playerName = 'Riven', objective
 }) => {
   const [tooltipAnchor, setTooltipAnchor] = useState(0);
@@ -90,13 +95,18 @@ export const HUD: React.FC<HUDProps> = ({
             </span>
             <span className="px-num">{clockLabel}</span>
           </div>
+          {/* The menu button is labelled rather than a bare gear, so the key
+              that opens it is visible without opening anything. */}
           <button
             type="button"
-            className="px-icon-btn"
+            className={`px-btn px-menu-btn ${menuOpen ? 'is-open' : ''}`}
             aria-label={menuOpen ? 'Close pause menu' : 'Open pause menu'}
+            aria-expanded={menuOpen}
             onClick={() => setMenuOpen(!menuOpen)}
           >
             <PixelIcon name={menuOpen ? 'close' : 'gear'} size={12} />
+            <span className="px-label">Menu</span>
+            <span className="px-key">{keycap('menu')}</span>
           </button>
         </div>
 
@@ -121,13 +131,19 @@ export const HUD: React.FC<HUDProps> = ({
             onAnchorChange={setTooltipAnchor}
           />
         </div>
+        {/* The hint strip is built from the binding table so it can never
+            disagree with what the keys actually do. */}
         <div className="hud-hint hidden sm:flex">
-          <span><span className="px-key">WASD</span>Move</span>
-          <span><span className="px-key">E</span>Talk</span>
-          <span><span className="px-key">I</span>Bag</span>
-          <span><span className="px-key">H</span>Manual</span>
+          {(['move', 'interact', 'mine', 'bag', 'menu'] as const).map(id => (
+            <span key={id}>
+              <span className="px-key">{keycap(id)}</span>
+              {binding(id)?.label ?? id}
+            </span>
+          ))}
         </div>
       </div>
+      {/* Frame rate, above the hotbar band on a phone, bottom-left on desktop */}
+      <FpsCounter perf={perfRef} />
     </div>
   );
 };

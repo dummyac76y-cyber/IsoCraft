@@ -49,7 +49,6 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
               key={idx}
               item={it}
               compact
-              muted
               title={`${it.name} - ${it.description}`}
             />
           ))}

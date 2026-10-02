@@ -50,6 +50,23 @@ interface GameCanvasProps {
    * the UI reaching into the engine.
    */
   talkApiRef?: React.MutableRefObject<{ continue: () => void } | null>;
+  /**
+   * Frame timing written every frame by the loop and sampled by the HUD
+   * counter. A plain mutable object rather than state: the loop must never
+   * trigger a React render.
+   */
+  perfRef?: React.MutableRefObject<SharedPerf>;
+}
+
+/** Frame timing shared between the game loop and the HUD counter. */
+export interface SharedPerf {
+  fps: number;
+  /** Smoothed milliseconds per frame. */
+  smoothMs: number;
+  frames: number;
+  accum: number;
+  drawCalls: number;
+  triangles: number;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
@@ -81,7 +98,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   touchInput,
   onNpcDialogue,
   playerName = 'Traveller',
-  talkApiRef
+  talkApiRef,
+  perfRef
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -400,6 +418,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let isMouseDown = false;
     let mouseButton = 0;
     let isMiddleDragging = false;
+    // Shadow refresh bookkeeping: position, sun cycle and a minimum frame gap.
+    let shadowAnchorX = Number.NaN;
+    let shadowAnchorZ = Number.NaN;
+    let shadowAnchorSun = Number.NaN;
+    const containerRect = { left: 0, top: 0, width: 1, height: 1 };
     // Pixels dragged with the middle button. A press that never crosses this
     // threshold counts as a click and snaps the view one 45 degree step.
     let middleDragDistance = 0;
@@ -450,6 +473,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           clearActivePath();
         }
       }
+
+      // E talks to whoever is standing next to you. Previously this only existed
+      // as the on-screen TALK button, so keyboard players had no way in.
+      if (e.code === 'KeyE' && !e.repeat) {
+        e.preventDefault();
+        handleInteractAtAim();
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -464,9 +494,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect();
-      mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      // The canvas fills the window, so the rect only changes on resize. Reading
+      // it per mousemove forced a layout flush on every pointer event.
+      mouseNDC.x = ((e.clientX - containerRect.left) / containerRect.width) * 2 - 1;
+      mouseNDC.y = -((e.clientY - containerRect.top) / containerRect.height) * 2 + 1;
 
       if (isMiddleDragging) {
         // Drag past the autoscroll threshold and the browser starts panning the
@@ -513,7 +544,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       mouseButton = e.button;
 
       if (e.button === 2) {
-        // Right click: Place block or open chest/crafting table
+        // Right click: place the held block
         e.preventDefault();
         handleRightClickAction();
         return;
@@ -531,7 +562,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         } else {
           // ==========================================
           // NORMAL CLICK: WORLD INTERACTION ONLY!
-          // Mining, attack, chest/crafting interaction.
+          // Mining, or talking to whatever is under the cursor
           // NEVER triggers pathfinding!
           // ==========================================
           handleNormalLeftClick();
@@ -683,7 +714,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
      * NORMAL LEFT CLICK:
      * - Mine blocks (starts mining swing; holding left click accumulates progress)
      * - Melee attack if within range of an enemy
-     * - Interact with NPC, chest, or crafting bench if within range
+     * - Talk to an NPC within reach
      * - Does NOT trigger pathfinding!
      */
     const handleNormalLeftClick = () => {
@@ -774,7 +805,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
 
     /**
-     * INTERACT at the current aim: opens a chest or crafting bench within reach,
+     * INTERACT at the current aim: talks to the nearest NPC within reach,
      * and otherwise swings at a mob. Bound to the touch INTERACT button.
      */
     const handleInteractAtAim = () => {
@@ -864,8 +895,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
 
     // --- Window Resize Handler ---
+    /** Keep the cached pointer rect in step with the canvas box. */
+    const syncContainerRect = () => {
+      const rect = container.getBoundingClientRect();
+      containerRect.left = rect.left;
+      containerRect.top = rect.top;
+      containerRect.width = rect.width || 1;
+      containerRect.height = rect.height || 1;
+    };
+
     const handleResize = () => {
       if (!container) return;
+      syncContainerRect();
       const width = container.clientWidth;
       const height = container.clientHeight;
       const currentAspect = width / height;
@@ -881,14 +922,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     };
 
     window.addEventListener('resize', handleResize);
+    syncContainerRect();
 
     // --- Main Game Loop Clock ---
     let lastTime = performance.now();
+    let frameStart = lastTime;
+    // Smoothed frame cost and the rolling FPS the HUD counter reads.
+    const perf: SharedPerf = perfRef?.current ?? { fps: 0, smoothMs: 0, frames: 0, accum: 0, drawCalls: 0, triangles: 0 };
     let stepTimer = 0;
     let invulnerableTimer = 0;
     let lastProcessedRespawn = respawnCountRef.current;
 
     let shadowFrame = 0;
+    let directorTimer = 0;
+    // Minimum frames between shadow passes. Six frames is ~50 ms at 120 FPS,
+    // still four times a second, and invisible on a slowly panning sun.
+    const SHADOW_MIN_GAP = 6;
     let frameCounter = 0;
     /** Visual-only lag so a step-up reads as a climb rather than a teleport. */
     let stepVisualOffset = 0;
@@ -898,8 +947,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const animate = (time: number) => {
       animFrameId = requestAnimationFrame(animate);
 
-      const delta = Math.min((time - lastTime) / 1000, 0.1);
+      // Measured from the previous frame's callback start, so it covers the
+      // whole frame: simulation plus the GPU submission that follows it.
+      const frameMs = time - lastTime;
+      const delta = Math.min(frameMs / 1000, 0.1);
       lastTime = time;
+      frameStart = time;
 
       // Respawn Handler
       const hasRespawnTriggered = respawnCountRef.current > lastProcessedRespawn;
@@ -936,9 +989,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       decorations.update(playerPos.x, playerPos.z, world, time);
       if (frameCounter % 180 === 0) decorations.pruneColliders(world);
 
-      // Day/night spawn director with population caps
-      const isNightNow = isNightCycle(dayTimeRef.current);
-      mobManager.spawnDirector(playerPos, world, isNightNow, delta);
+      // Day/night spawn director with population caps. Running it every frame
+      // meant re-reading the clock and walking the mob list eight times a
+      // millisecond for no benefit: decisions only matter a few times a second.
+      directorTimer -= delta;
+      if (directorTimer <= 0) {
+        directorTimer = 0.25;
+        mobManager.spawnDirector(playerPos, world, isNightCycle(dayTimeRef.current), directorTimer);
+      }
 
       // Update Zoom & Frustum
       const desiredFrustum = zoomLevelRef.current;
@@ -1524,15 +1582,41 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         });
       }
 
-      // Throttled shadow refresh: re-render the shadow maps every ~5 frames
-      // instead of every frame (dynamic sun + mobs still update ~12x/sec).
       clearTouchEdges(touchInput);
 
-      shadowFrame = (shadowFrame + 1) % 5;
-      if (shadowFrame === 0) renderer.shadowMap.needsUpdate = true;
+      // Shadow maps are the single most expensive thing in the frame, and at
+      // 120 FPS a fixed "every 5th frame" cadence would mean 24 full shadow
+      // passes a second. They are refreshed when the player has actually moved
+      // or the sun has actually swung, capped so a fast run cannot exceed the
+      // budget, and skipped entirely when nothing has changed.
+      const moved = Math.abs(playerPos.x - shadowAnchorX) > 0.35 || Math.abs(playerPos.z - shadowAnchorZ) > 0.35;
+      const sunMoved = Math.abs(dayTimeRef.current - shadowAnchorSun) > 0.0015;
+      shadowFrame++;
+      if ((moved || sunMoved) && shadowFrame >= SHADOW_MIN_GAP) {
+        shadowFrame = 0;
+        renderer.shadowMap.needsUpdate = true;
+        shadowAnchorX = playerPos.x;
+        shadowAnchorZ = playerPos.z;
+        shadowAnchorSun = dayTimeRef.current;
+      }
       frameCounter++;
 
       renderer.render(scene, camera);
+
+      // Frame timing for the HUD counter, written to the shared ref so the
+      // readout can sample it without React ever re-rendering from in here.
+      if (frameMs > 0 && frameMs < 500) {
+        perf.smoothMs += (frameMs - perf.smoothMs) * 0.1;
+        perf.frames++;
+        perf.accum += frameMs;
+        if (perf.accum >= 400) {
+          perf.fps = Math.round((perf.frames * 1000) / perf.accum);
+          perf.frames = 0;
+          perf.accum = 0;
+        }
+      }
+      perf.drawCalls = renderer.info.render.calls;
+      perf.triangles = renderer.info.render.triangles;
     };
 
     animFrameId = requestAnimationFrame(animate);
