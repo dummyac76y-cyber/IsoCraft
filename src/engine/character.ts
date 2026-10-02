@@ -62,6 +62,13 @@ export class CharacterModel {
   private placeholder: THREE.Group | null = null;
   private playDeathAnimation: (() => void) | null = null;
   private playReviveAnimation: (() => void) | null = null;
+  /**
+   * Resolves once the body is either attached or known to be unavailable.
+   * A silent placeholder looks like a broken game, so callers that gate on the
+   * first frame can watch this instead of guessing.
+   */
+  private bodyReady: Promise<boolean>;
+  private markBodyReady: (ok: boolean) => void = () => {};
 
   // Animation state
   private attackProgress: number = 0;
@@ -72,6 +79,9 @@ export class CharacterModel {
   private equippedKey: string | null = null;
 
   constructor(customization: CharacterCustomization) {
+    this.bodyReady = new Promise<boolean>(resolve => {
+      this.markBodyReady = resolve;
+    });
     this.customization = customization;
     this.group = new THREE.Group();
     this.group.name = 'Character';
@@ -189,7 +199,13 @@ export class CharacterModel {
         if (this.desiredVariant !== variant) return;
 
         const instance = instantiateKenneyCharacter(loaded, PLAYER_HEIGHT);
-        if (!instance) return; // keep the placeholder
+        if (!instance) {
+          // No idle clip: nothing will ever animate, but the player still has
+          // to be visible, so keep the stand-in body and say so out loud.
+          console.warn('[character] no idle clip in', variant, '- using placeholder body');
+          this.markBodyReady(false);
+          return;
+        }
 
         // Drop the old body first (disposes its per-instance materials)
         this.clearBody();
@@ -206,6 +222,7 @@ export class CharacterModel {
 
         this.bodyHolder.add(instance.root);
         this.character = instance;
+        this.markBodyReady(true);
         this.bodyMaterials.forEach(m => this.baseColors.set(m, m.color.clone()));
         this.applyArmorTint();
 
@@ -240,8 +257,11 @@ export class CharacterModel {
           };
         }
       })
-      .catch(() => {
-        // Asset unavailable: keep the placeholder body
+      .catch(err => {
+        // Asset unavailable: keep the placeholder body, but never quietly. A
+        // missing model used to leave the player looking at an empty world.
+        console.error('[character] Kenney body failed to load:', variant, err);
+        this.markBodyReady(false);
       });
   }
 
@@ -255,6 +275,14 @@ export class CharacterModel {
         m.color.copy(base).lerp(new THREE.Color(tint), 0.28);
       }
     });
+  }
+
+  /**
+   * True once the Kenney body is in the scene, false if the load failed and the
+   * placeholder is standing in for it.
+   */
+  public whenBodyReady(): Promise<boolean> {
+    return this.bodyReady;
   }
 
   // ---- Customization -----------------------------------------------------

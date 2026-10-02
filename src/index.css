@@ -34,10 +34,36 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  body {
+    /* Kills the 300ms double-tap delay and the accidental double-tap zoom on
+       the menus. The canvas opts out of gestures entirely further down. */
+    touch-action: manipulation;
+  }
+
   html,
   body,
   #root {
     height: 100%;
+    /* A phone browser's toolbar is taller than the visible area and shrinks as
+       you scroll. 100% resolves against the largest of the two, so the bottom
+       of the world (hotbar, joystick) sat under the toolbar. dvh is the
+       viewport the player can actually see, and it tracks the toolbar as it
+       collapses. */
+    height: 100dvh;
+    /* Stop pull-to-refresh and rubber-banding: both reveal the page behind a
+       canvas that is meant to be the whole page. */
+    overscroll-behavior: none;
+    /* iOS inflates text in landscape, which blows the pixel layout apart. */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  @supports not (height: 100dvh) {
+    html,
+    body,
+    #root {
+      height: 100%;
+    }
   }
 
   body {
@@ -1202,7 +1228,7 @@
 
 .px-menu {
   width: 236px;
-  max-height: calc(100vh - 96px);
+  max-height: calc(100dvh - 96px);
   overflow-y: auto;
 }
 
@@ -1503,4 +1529,73 @@
 
 .px-sprint .px-action__key {
   margin-left: auto;
+}
+
+/* --------------------------------------------------------------------------
+   Boot overlay
+   -------------------------------------------------------------------------- */
+
+.px-boot {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--px-void);
+  /* Fade rather than cut: the world is already rendering behind it. */
+  animation: px-boot-in 240ms ease-out;
+}
+
+.px-boot__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 22px;
+  background: var(--px-panel);
+  border: 1px solid var(--px-line);
+  clip-path: polygon(
+    6px 0, calc(100% - 6px) 0, calc(100% - 6px) 2px, 100% 2px,
+    100% calc(100% - 6px), calc(100% - 2px) calc(100% - 6px), calc(100% - 2px) 100%,
+    6px 100%, 2px calc(100% - 2px), 0 calc(100% - 6px), 0 6px, 6px 6px
+  );
+}
+
+.px-boot__title {
+  font-family: 'Silkscreen', monospace;
+  font-size: 18px;
+  color: var(--px-gold);
+  letter-spacing: 1px;
+}
+
+.px-boot__sub {
+  font-size: 11px;
+  color: var(--px-ink-dim);
+}
+
+.px-boot__track {
+  width: min(260px, 62vw);
+  height: 10px;
+  padding: 2px;
+  background: var(--px-void);
+  border: 1px solid var(--px-line);
+}
+
+.px-boot__fill {
+  height: 100%;
+  background: var(--px-gold);
+  /* Stepped so the bar reads as drawn, not stretched */
+  transition: width 180ms steps(6, end);
+}
+
+.px-boot__pct {
+  font-family: 'Silkscreen', monospace;
+  font-size: 9px;
+  color: var(--px-ink-dim);
+}
+
+@keyframes px-boot-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

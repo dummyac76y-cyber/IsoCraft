@@ -172,6 +172,12 @@ export default function App() {
   // every frame and React never re-renders because of it.
   const perfRef = useRef<SharedPerf>({ fps: 0, smoothMs: 0, frames: 0, accum: 0, drawCalls: 0, triangles: 0 });
 
+  // Boot progress. The world streams in and the Kenney body arrives over the
+  // network, so the first second is genuinely empty; a bar makes that legible
+  // instead of looking like a black screen.
+  const [bootPct, setBootPct] = useState(0);
+  const [booted, setBooted] = useState(false);
+
   const [isTouchDevice, setIsTouchDevice] = useState(
     () => typeof window !== 'undefined' &&
       (window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0)
@@ -199,6 +205,15 @@ export default function App() {
     z: 0,
     facingAngle: Math.PI / 4 + Math.PI
   });
+
+  // Watchdog: a missing or slow asset must never leave the player staring at a
+  // loading bar forever. The world is playable without the body, so after a
+  // few seconds we let them in regardless.
+  useEffect(() => {
+    if (booted) return;
+    const id = window.setTimeout(() => setBooted(true), 9000);
+    return () => window.clearTimeout(id);
+  }, [booted]);
 
   // Sync mute state with sound engine
   useEffect(() => {
@@ -443,7 +458,27 @@ export default function App() {
   }, [isAnyModalOpen, closeNpcDialogue]);
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden select-none" style={{ background: 'var(--px-void)' }}>
+    <div
+      className="relative h-screen w-screen overflow-hidden select-none"
+      // h-screen is 100vh, which on a phone is taller than the screen once the
+      // browser toolbar is counted. The world was pushed below the fold: the
+      // hotbar sat under the toolbar and the player was off the bottom.
+      style={{ background: 'var(--px-void)', height: '100dvh' }}
+    >
+      {/* Boot overlay. Terrain generation and the Kenney body both happen after
+          first paint, so without this the game opens on an empty frame. */}
+      {!booted && (
+        <div className="px-boot" role="status" aria-live="polite">
+          <div className="px-boot__inner">
+            <span className="px-boot__title">IsoCraft</span>
+            <span className="px-boot__sub">Carving the valley</span>
+            <div className="px-boot__track">
+              <div className="px-boot__fill" style={{ width: `${bootPct}%` }} />
+            </div>
+            <span className="px-boot__pct">{bootPct}%</span>
+          </div>
+        </div>
+      )}
       {/* 3D Three.js Infinite Voxel Sandbox Canvas */}
       <GameCanvas
         customization={customization}
@@ -475,6 +510,10 @@ export default function App() {
         onNpcDialogue={handleNpcDialogue}
         talkApiRef={talkApiRef}
         perfRef={perfRef}
+        onBootProgress={pct => {
+          setBootPct(pct);
+          if (pct >= 100) setBooted(true);
+        }}
       />
 
       {/* Virtual joystick + action buttons for phones and tablets */}

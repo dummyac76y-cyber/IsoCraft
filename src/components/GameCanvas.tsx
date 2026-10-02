@@ -56,6 +56,12 @@ interface GameCanvasProps {
    * trigger a React render.
    */
   perfRef?: React.MutableRefObject<SharedPerf>;
+  /**
+   * Boot progress, 0-100. The world used to appear in pieces with no
+   * indication anything was still arriving; on a phone that just looked like
+   * a black screen.
+   */
+  onBootProgress?: (pct: number) => void;
 }
 
 /** Frame timing shared between the game loop and the HUD counter. */
@@ -99,7 +105,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onNpcDialogue,
   playerName = 'Traveller',
   talkApiRef,
-  perfRef
+  perfRef,
+  onBootProgress
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -186,10 +193,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     container.appendChild(renderer.domElement);
 
     // --- Infinite Procedural Voxel World ---
+    onBootProgress?.(25);
     const world = new VoxelWorld(1234, 'meadow');
     world.generate('meadow', 1234);
     worldRef.current = world;
     scene.add(world.group);
+    onBootProgress?.(55);
 
     // --- Player Character (Kenney Mini Characters rigged GLB) ---
     const character = new CharacterModel(customization);
@@ -200,6 +209,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const playerVel = new THREE.Vector3(0, 0, 0);
     character.group.position.copy(playerPos);
     scene.add(character.group);
+    // 100 once the body is in, or as soon as we know it is not coming, so the
+    // loader clears either way.
+    character.whenBodyReady().then(() => onBootProgress?.(100));
 
     // --- Mobs & Drops Manager ---
     const mobManager = new MobManager();
@@ -923,6 +935,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     window.addEventListener('resize', handleResize);
     syncContainerRect();
+    // A phone collapsing its address bar resizes the visible viewport without
+    // firing window.resize, which left the world stretched and the hotbar under
+    // the toolbar until the player rotated the device.
+    const visualViewport = window.visualViewport;
+    visualViewport?.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
 
     // --- Main Game Loop Clock ---
     let lastTime = performance.now();
@@ -1627,6 +1645,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
       window.removeEventListener('resize', handleResize);
+      visualViewport?.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
       canvasElem.removeEventListener('mousemove', handleMouseMove);
       canvasElem.removeEventListener('mousedown', handleMouseDown);
       window.removeEventListener('mouseup', handleMouseUp);
