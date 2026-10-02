@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { MobEntity, DroppedItemEntity, Item, BlockType } from '../types';
 import { sound } from './sound';
 import { VoxelWorld } from './world';
-import { loadKenneyModel, instanceKenneyModel } from './kenney';
+import { loadKenneyModel, instantiateKenneyCharacter, KenneyCharacter } from './kenney';
 
 // Kenney Mini Characters pack: 12 humanoid variants used for NPC villagers
 const KENNEY_CHARACTER_MODELS = [
@@ -214,13 +214,17 @@ export class MobManager {
     return mobGroup;
   }
 
-  // Replace a mob's voxel shell with a Kenney Mini Characters GLB model.
+  // Replace a mob's voxel shell with an animated Kenney Mini Characters GLB
+  // model (properly cloned skeleton, idle/walk crossfade).
   // Falls back silently to the voxel model if the asset fails to load.
   private attachKenneyNpc(group: THREE.Group, mob: MobEntity, model: string, height: number) {
     loadKenneyModel('mini-characters', model)
-      .then(template => {
+      .then(loaded => {
         // Mob was defeated before the model finished loading: drop the clone
         if (!this.mobs.includes(mob)) return;
+
+        const character = instantiateKenneyCharacter(loaded, height);
+        if (!character) return; // no usable clips: keep the voxel villager
 
         // Dispose the temporary voxel shell (all materials/geometries are mob-local)
         const staleGeometries = new Set<THREE.BufferGeometry>();
@@ -238,7 +242,8 @@ export class MobManager {
         staleGeometries.forEach(g => g.dispose());
         staleMaterials.forEach(m => m.dispose());
 
-        group.add(instanceKenneyModel(template, height));
+        group.add(character.root);
+        group.userData.character = character;
       })
       .catch(() => {
         // Asset unavailable: keep the original voxel villager
@@ -412,6 +417,14 @@ export class MobManager {
       if (mesh) {
         mesh.position.set(mob.x, mob.y, mob.z);
         mesh.rotation.y = mob.rotationY;
+
+        // Rigged Kenney characters: blend idle/walk by actual movement speed
+        const character = mesh.userData.character as KenneyCharacter | undefined;
+        if (character) {
+          const speed = Math.sqrt(mob.vx * mob.vx + mob.vz * mob.vz);
+          character.setLocomotion(Math.min(1, speed / 1.2));
+          character.update(delta);
+        }
 
         // Slime squish/stretch animation
         if (mob.type === 'slime') {
