@@ -7,7 +7,14 @@ interface MobileControlsProps {
   input: TouchInputState;
   /** Hidden on desktop pointers. */
   visible: boolean;
+  /** Swiping the world yaws the camera. Radians per pixel of horizontal drag. */
+  onOrbitCamera?: (deltaAngle: number) => void;
 }
+
+/** Pixels of drag before a world touch becomes a camera swipe. */
+const SWIPE_THRESHOLD = 10;
+/** Radians of camera yaw per pixel dragged. */
+const SWIPE_SENSITIVITY = 0.009;
 
 type HoldName =
   | 'sprint' | 'jump' | 'mine' | 'place' | 'interact' | 'pathfind'
@@ -21,12 +28,15 @@ type HoldName =
  * layout is kept to the screen edges - stick and sprint bottom-left, actions
  * bottom-right, hotbar untouched between them - so nothing covers the world.
  */
-export function MobileControls({ input, visible }: MobileControlsProps) {
+export function MobileControls({ input, visible, onOrbitCamera }: MobileControlsProps) {
   const stickRef = useRef<HTMLDivElement | null>(null);
   const pointerId = useRef<number | null>(null);
   // Knob travel is rounded to whole pixels so it never lands on a half pixel
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const [held, setHeld] = useState<Partial<Record<HoldName, boolean>>>({});
+  // Live swipe state for the world layer. Kept in a ref: the drag has to read
+  // and write on every pointermove without re-rendering the control layer.
+  const swipe = useRef({ id: null as number | null, x: 0, y: 0, moved: false });
 
   const setHold = useCallback(
     (name: HoldName, down: boolean) => {
@@ -153,13 +163,31 @@ export function MobileControls({ input, visible }: MobileControlsProps) {
           input.aimActive = true;
           input.aimX = e.clientX;
           input.aimY = e.clientY;
+          swipe.current = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
         }}
         onPointerMove={e => {
-          if (!input.aimActive) return;
+          if (!input.aimActive || swipe.current.id !== e.pointerId) return;
+
+          const dx = e.clientX - swipe.current.x;
+          if (!swipe.current.moved && Math.abs(dx) < SWIPE_THRESHOLD) return;
+
+          // Past the threshold this drag is a camera swipe, not an aim. The
+          // finger still aims once the yaw settles, so a drag-and-release can
+          // both spin the view and select what is under it.
+          swipe.current.moved = true;
+          swipe.current.x = e.clientX;
+          onOrbitCamera?.(dx * SWIPE_SENSITIVITY);
           input.aimX = e.clientX;
           input.aimY = e.clientY;
         }}
-        onPointerUp={() => { input.aimActive = false; }}
+        onPointerUp={e => {
+          if (swipe.current.id === e.pointerId) swipe.current.id = null;
+          input.aimActive = false;
+        }}
+        onPointerCancel={() => {
+          swipe.current.id = null;
+          input.aimActive = false;
+        }}
         onContextMenu={e => e.preventDefault()}
       />
 

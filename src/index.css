@@ -1216,3 +1216,142 @@
   justify-content: center;
   pointer-events: none;
 }
+
+/* --------------------------------------------------------------------------
+   Phone layout
+   --------------------------------------------------------------------------
+   Vertical budget on a 390x844 handset, bottom up:
+     hotbar      12 -  60   centre
+     camera row  66 -  92   centre, horizontal
+     stick       96 - 192   left
+     actions     96 - 287   right
+   Nothing shares a band with anything else, and the top stack is capped so it
+   cannot reach the controls on a short screen.
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 560px) {
+  .hud {
+    padding: 8px;
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
+
+  .hud-player,
+  .hud-quest,
+  .hud-coords {
+    width: 146px;
+  }
+
+  /* The objective keeps its headline, drops the second line */
+  .hud-quest .px-body {
+    display: none;
+  }
+
+  .hud-hint {
+    display: none;
+  }
+
+  /* No room for a floating readout over the world; the bag names everything */
+  .hud-tooltip {
+    display: none;
+  }
+
+  /* Icons only: labels double the button height for no gain on a phone */
+  .px-action .px-label {
+    display: none;
+  }
+
+  .px-stick {
+    left: max(10px, env(safe-area-inset-left));
+    bottom: 96px;
+    width: 96px;
+    height: 96px;
+  }
+
+  .px-sprint {
+    left: max(10px, env(safe-area-inset-left));
+    bottom: 198px;
+    width: 96px;
+    height: 24px;
+  }
+
+  .px-actions {
+    right: max(10px, env(safe-area-inset-right));
+    bottom: 96px;
+    grid-template-columns: repeat(2, 46px);
+    gap: 5px;
+  }
+
+  .px-action {
+    width: 46px;
+    height: 46px;
+  }
+
+  .px-action--wide {
+    width: 97px;
+    height: 34px;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* Camera moves to a horizontal row between the hotbar and the controls */
+  .px-camera {
+    right: auto;
+    left: 50%;
+    top: auto;
+    bottom: 66px;
+    transform: translateX(-50%);
+    flex-direction: row;
+    gap: 4px;
+  }
+
+  .px-toast-layer {
+    top: max(8px, env(safe-area-inset-top));
+  }
+
+  .px-menu-layer {
+    padding: max(56px, env(safe-area-inset-top)) 8px 8px;
+  }
+
+  .px-menu {
+    width: 214px;
+  }
+}
+
+/* Landscape phones: the vertical budget is the binding constraint */
+@media (max-height: 480px) {
+  .hud-quest,
+  .hud-coords {
+    display: none;
+  }
+
+  .px-stick {
+    bottom: 76px;
+    width: 84px;
+    height: 84px;
+  }
+
+  .px-sprint {
+    bottom: 166px;
+    height: 22px;
+  }
+
+  .px-actions {
+    bottom: 76px;
+    grid-template-columns: repeat(2, 40px);
+    gap: 4px;
+  }
+
+  .px-action {
+    width: 40px;
+    height: 40px;
+  }
+
+  .px-action--wide {
+    width: 84px;
+    height: 28px;
+  }
+
+  .px-camera {
+    bottom: 52px;
+  }
+}

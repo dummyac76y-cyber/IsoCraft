@@ -14,6 +14,7 @@ import { cycleFromDate } from './engine/dayNight';
 import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, BlockType } from './types';
 import { VoxelWorld } from './engine/world';
 import { sound } from './engine/sound';
+import { useFullscreen } from './engine/useFullscreen';
 
 // Security Helper: Safely access localStorage without throwing SecurityError or QuotaExceededError in restricted browser contexts
 const safeGetItem = (key: string): string | null => {
@@ -48,65 +49,10 @@ export default function App() {
   });
 
   // --- Initial Player Inventory ---
-  const [inventory, setInventory] = useState<Item[]>([
-    {
-      id: 'wood_sword',
-      name: 'Wooden Sword',
-      type: 'weapon',
-      tier: 1,
-      damage: 4,
-      count: 1,
-      maxStack: 1,
-      description: 'Handy wooden blade for clearing shrubs and wild creatures'
-    },
-    {
-      id: 'wood_pickaxe',
-      name: 'Wooden Pickaxe',
-      type: 'tool',
-      toolType: 'pickaxe',
-      tier: 1,
-      damage: 2,
-      count: 1,
-      maxStack: 1,
-      description: 'Carves stone and mines surface deposits'
-    },
-    {
-      id: 'wood_planks',
-      name: 'Wooden Planks',
-      type: 'block',
-      blockType: BlockType.WOOD_PLANKS,
-      count: 32,
-      maxStack: 64,
-      description: 'Solid lumber for crafting cottages and stairs'
-    },
-    {
-      id: 'torch',
-      name: 'Torch',
-      type: 'block',
-      blockType: BlockType.TORCH,
-      count: 16,
-      maxStack: 64,
-      description: 'Illuminates dark isometric nights and caverns'
-    },
-    {
-      id: 'stone_bricks',
-      name: 'Stone Bricks',
-      type: 'block',
-      blockType: BlockType.STONE_BRICKS,
-      count: 24,
-      maxStack: 64,
-      description: 'Chiseled fortress bricks for walls and pillars'
-    },
-    {
-      id: 'healing_herb',
-      name: 'Herbal Salve',
-      type: 'food',
-      count: 4,
-      maxStack: 16,
-      healAmount: 6,
-      description: 'Restores 6 HP when consumed'
-    }
-  ]);
+  // Deliberately empty. Every legacy tool, weapon and block item is gone: they
+  // were placeholders for block art that never had a real Kenney model behind
+  // it. The bag fills from what you actually mine out of the ground.
+  const [inventory, setInventory] = useState<Item[]>([]);
 
   // --- Player Stats ---
   const [playerStats, setPlayerStats] = useState<PlayerStats>({
@@ -131,6 +77,7 @@ export default function App() {
   const [cameraAngle, setCameraAngle] = useState<number>(Math.PI / 4); // 45 degrees isometric
   const [zoomLevel, setZoomLevel] = useState<number>(20);
   const [isMuted, setIsMuted] = useState<boolean>(false);
+  const { isFullscreen, isSupported: isFullscreenSupported, toggle: toggleFullscreen } = useFullscreen();
 
   // Auto-Rotate Settings
   const [autoRotateCamera, setAutoRotateCamera] = useState<boolean>(() => {
@@ -190,8 +137,6 @@ export default function App() {
 
   // --- Modals State ---
   const [isInventoryOpen, setIsInventoryOpen] = useState<boolean>(false);
-  const [isAtBench, setIsAtBench] = useState<boolean>(false);
-  const [chestModalData, setChestModalData] = useState<{ coords: string; items: Item[] } | null>(null);
   const [isCustomizerOpen, setIsCustomizerOpen] = useState<boolean>(false);
   const [isWorldModalOpen, setIsWorldModalOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
@@ -270,8 +215,6 @@ export default function App() {
       if (e.code === 'KeyI' || e.code === 'Tab') {
         if (e.code === 'Tab') e.preventDefault();
         setIsInventoryOpen(prev => !prev);
-        setIsAtBench(false);
-        setChestModalData(null);
       } else if (e.code === 'KeyQ') {
         handleRotateCamera(-1);
       } else if (e.code === 'KeyE') {
@@ -370,30 +313,6 @@ export default function App() {
     setZoomLevel(prev => Math.max(10, Math.min(45, prev + delta)));
   };
 
-  // Open Chest Modal
-  const handleOpenChest = (chestKey: string, items: Item[]) => {
-    setChestModalData({ coords: chestKey, items });
-    setIsInventoryOpen(true);
-    sound.playCraft();
-  };
-
-  // Open Crafting Bench Modal
-  const handleOpenCrafting = (atBench: boolean) => {
-    setIsAtBench(atBench);
-    setChestModalData(null);
-    setIsInventoryOpen(true);
-    sound.playCraft();
-  };
-
-  // Heal player
-  const handleHealPlayer = (amount: number) => {
-    setPlayerStats(prev => ({
-      ...prev,
-      hp: Math.min(prev.maxHp, prev.hp + amount)
-    }));
-    addFloatingText(`+${amount} HP`, 0, 0, 0, '#10b981');
-  };
-
   // NPC conversation, shown as a bubble for a few seconds
   const [npcDialogue, setNpcDialogue] = useState<{ name: string; role: string; line: string } | null>(null);
   const npcTimerRef = useRef<number | null>(null);
@@ -433,8 +352,6 @@ export default function App() {
         onPlayerDied={handlePlayerDied}
         respawnCount={respawnCount}
         isModalOpen={isAnyModalOpen}
-        onOpenChest={handleOpenChest}
-        onOpenCrafting={handleOpenCrafting}
         addFloatingText={addFloatingText}
         worldRef={worldRef}
         onRotateCamera={handleRotateCamera}
@@ -454,6 +371,7 @@ export default function App() {
       <MobileControls
         input={touchInputRef.current}
         visible={isTouchDevice && !isAnyModalOpen && !isHudMenuOpen}
+        onOrbitCamera={handleOrbitCamera}
       />
 
       {/* Heads-up display */}
@@ -466,11 +384,7 @@ export default function App() {
         menuOpen={isHudMenuOpen}
         setMenuOpen={setIsHudMenuOpen}
         showMinimap={showMinimap}
-        onOpenInventory={() => {
-          setIsInventoryOpen(true);
-          setIsAtBench(false);
-          setChestModalData(null);
-        }}
+        onOpenInventory={() => setIsInventoryOpen(true)}
         worldRef={worldRef}
         playerPosRef={playerPosRef}
         cameraAngle={cameraAngle}
@@ -491,7 +405,7 @@ export default function App() {
       <PauseMenu
         open={isHudMenuOpen}
         onClose={() => setIsHudMenuOpen(false)}
-        onOpenInventory={() => { setIsInventoryOpen(true); setIsAtBench(false); setChestModalData(null); }}
+        onOpenInventory={() => setIsInventoryOpen(true)}
         onOpenCustomizer={() => setIsCustomizerOpen(true)}
         onOpenWorldModal={() => setIsWorldModalOpen(true)}
         onOpenHelp={() => setIsHelpOpen(true)}
@@ -512,6 +426,9 @@ export default function App() {
         onResetCamera={handleResetCamera}
         timeOffsetHours={timeOffsetHours}
         onShiftTime={(hours) => setTimeOffsetHours(prev => (((prev + hours) % 24) + 24) % 24)}
+        isFullscreen={isFullscreen}
+        isFullscreenSupported={isFullscreenSupported}
+        onToggleFullscreen={toggleFullscreen}
         notify={notify}
       />
 
@@ -544,22 +461,9 @@ export default function App() {
       {/* Inventory & Crafting & Chest Modal */}
       <InventoryModal
         isOpen={isInventoryOpen}
-        onClose={() => {
-          setIsInventoryOpen(false);
-          setChestModalData(null);
-        }}
+        onClose={() => setIsInventoryOpen(false)}
         inventory={inventory}
         setInventory={setInventory}
-        chestItems={chestModalData?.items}
-        setChestItems={(newItems) => {
-          if (chestModalData && worldRef.current) {
-            worldRef.current.chestContents.set(chestModalData.coords, newItems);
-            setChestModalData({ ...chestModalData, items: newItems });
-          }
-        }}
-        chestCoords={chestModalData?.coords}
-        isAtBench={isAtBench}
-        onHealPlayer={handleHealPlayer}
       />
 
       {/* Character Wardrobe Modal */}

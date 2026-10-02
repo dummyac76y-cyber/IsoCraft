@@ -26,6 +26,9 @@ interface PauseMenuProps {
   onResetCamera: () => void;
   timeOffsetHours: number;
   onShiftTime: (hours: number) => void;
+  isFullscreen: boolean;
+  isFullscreenSupported: boolean;
+  onToggleFullscreen: () => void;
   notify: (message: string) => void;
 }
 
@@ -175,6 +178,25 @@ export function PauseMenu(props: PauseMenuProps) {
           <PixelIcon name="sun" size={11} /> Skip a day
           <span className="px-row__meta">
             {props.timeOffsetHours === 0 ? 'Real' : `+${props.timeOffsetHours % 24}H`}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="px-row"
+          disabled={!props.isFullscreenSupported}
+          onClick={() => {
+            props.onToggleFullscreen();
+            props.notify(props.isFullscreen ? 'Fullscreen off' : 'Fullscreen on');
+          }}
+          title={
+            props.isFullscreenSupported
+              ? 'Hide the browser chrome and go edge to edge'
+              : 'This browser does not allow fullscreen for the game'
+          }
+        >
+          <PixelIcon name="expand" size={11} /> Fullscreen
+          <span className={`px-row__meta ${props.isFullscreen ? 'is-on' : ''}`}>
+            {props.isFullscreenSupported ? (props.isFullscreen ? 'On' : 'Off') : 'N/A'}
           </span>
         </button>
         <button type="button" className="px-row" onClick={leave(props.onOpenWorldModal)}>

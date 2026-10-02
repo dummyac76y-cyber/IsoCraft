@@ -146,18 +146,6 @@ export const BLOCK_ART: Record<BlockType, BlockArt | null> = {
     model: ARENA_BRICKS, footprint: 1, height: 0.5, tint: 0x99a0a9,
     rotateY: true, variance: 0.05, collider: 'slab'
   },
-  [BlockType.WOOD_PLANKS]: {
-    model: FOREST_PLATFORM, footprint: 0.9, height: 0.42, tint: 0xc08c52,
-    rotateY: true, variance: 0.05, collider: 'slab'
-  },
-  [BlockType.WOOD_LOG]: {
-    model: ARENA_BRICKS, footprint: 0.92, height: 0.72, tint: 0x8a5a32,
-    rotateY: true, variance: 0.06, collider: 'cube'
-  },
-  [BlockType.BOOKSHELF]: {
-    model: FOREST_LADDER, footprint: 0.85, height: 1, tint: 0xa9793f,
-    rotateY: true, collider: 'cube'
-  },
   [BlockType.GLASS]: {
     model: ARENA_BLOCK, footprint: 0.98, height: 1, tint: 0xbfe6f5,
     transparent: true, opacity: 0.4, variance: 0.03, collider: 'cube'
@@ -168,24 +156,8 @@ export const BLOCK_ART: Record<BlockType, BlockArt | null> = {
   },
 
   // ---- Interactive props -----------------------------------------------
-  [BlockType.CRAFTING_BENCH]: {
-    model: FOREST_PLATFORM, footprint: 0.95, height: 0.78, tint: 0xb9793c,
-    rotateY: true, collider: 'cube'
-  },
-  [BlockType.CHEST]: {
-    model: ARENA_BRICKS, footprint: 0.92, height: 0.66, tint: 0xb07a33,
-    rotateY: true, collider: 'cube'
-  },
 
   // ---- Light sources and small decor -----------------------------------
-  [BlockType.TORCH]: {
-    model: FOREST_PLANT, footprint: 0.7, height: 0.62, tint: 0xff9a2e,
-    emissive: 0xff7700, rotateY: true, collider: 'none'
-  },
-  [BlockType.LANTERN]: {
-    model: FOREST_PLANT, footprint: 1.15, height: 0.9, tint: 0xffd964,
-    emissive: 0xffb62e, rotateY: true, collider: 'none'
-  },
   [BlockType.FLOWER_RED]: {
     model: FOREST_PLANT, footprint: 0.9, height: 0.5, tint: 0xd23c3c,
     rotateY: true, variance: 0.08, castShadow: false, collider: 'plant'

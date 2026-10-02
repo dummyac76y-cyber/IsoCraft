@@ -393,10 +393,7 @@ function getBlockIsometricColors(type: BlockType): { top: string; sideLeft: stri
       return { top: '#7c7c86', sideLeft: '#65656e', sideRight: '#505058' };
     case BlockType.STONE_BRICKS:
       return { top: '#8a8a96', sideLeft: '#70707c', sideRight: '#575762' };
-    case BlockType.WOOD_LOG:
       return { top: '#b88a59', sideLeft: '#6f4728', sideRight: '#52341d' };
-    case BlockType.WOOD_PLANKS:
-      return { top: '#a87849', sideLeft: '#8a6037', sideRight: '#6c4a27' };
     case BlockType.LEAVES:
       return { top: '#338825', sideLeft: '#276c1c', sideRight: '#1c5013' };
     case BlockType.GLASS:
@@ -409,8 +406,6 @@ function getBlockIsometricColors(type: BlockType): { top: string; sideLeft: stri
       return { top: '#8b8480', sideLeft: '#736c69', sideRight: '#5b5452' };
     case BlockType.COAL_ORE:
       return { top: '#45454a', sideLeft: '#36363a', sideRight: '#27272b' };
-    case BlockType.TORCH:
-    case BlockType.LANTERN:
       return { top: '#fbbf24', sideLeft: '#d97706', sideRight: '#b45309' };
     default:
       return { top: '#5e8248', sideLeft: '#486636', sideRight: '#354c27' };

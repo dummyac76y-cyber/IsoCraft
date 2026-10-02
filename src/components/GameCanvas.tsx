@@ -27,8 +27,6 @@ interface GameCanvasProps {
   onPlayerDied?: (cause: string) => void;
   respawnCount: number;
   isModalOpen: boolean;
-  onOpenChest?: (chestKey: string, items: Item[]) => void;
-  onOpenCrafting?: (atBench: boolean) => void;
   addFloatingText: (text: string, x: number, y: number, z: number, color: string) => void;
   worldRef: React.MutableRefObject<VoxelWorld | null>;
   onRotateCamera: (dir: number) => void;
@@ -63,8 +61,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onPlayerDied,
   respawnCount,
   isModalOpen,
-  onOpenChest,
-  onOpenCrafting,
   addFloatingText,
   worldRef,
   onRotateCamera,
@@ -686,22 +682,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
         targetFacingAngle = Math.atan2(currentHit.blockX + 0.5 - playerPos.x, currentHit.blockZ + 0.5 - playerPos.z);
 
-        // Chest Interaction
-        if (currentHit.blockType === BlockType.CHEST && distToBlock <= 3.6) {
-          character.triggerInteract();
-          const chestKey = `${currentHit.blockX},${currentHit.blockY},${currentHit.blockZ}`;
-          const chestItems = world.chestContents.get(chestKey) || [];
-          onOpenChest?.(chestKey, chestItems);
-          return;
-        }
-
-        // Crafting Bench Interaction
-        if (currentHit.blockType === BlockType.CRAFTING_BENCH && distToBlock <= 3.6) {
-          character.triggerInteract();
-          onOpenCrafting?.(true);
-          return;
-        }
-
         // Mine block in creative (instant break)
         if (gameModeRef.current === 'creative' && distToBlock <= 6.5) {
           character.triggerMine();
@@ -742,25 +722,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       raycaster.setFromCamera(mouseNDC, camera);
 
-      if (currentHit) {
-        const reach = playerPos.distanceTo(
-          new THREE.Vector3(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5)
-        );
-        if (reach <= 3.6) {
-          const key = `${currentHit.blockX},${currentHit.blockY},${currentHit.blockZ}`;
-          if (currentHit.blockType === BlockType.CHEST) {
-            character.triggerInteract();
-            onOpenChest?.(key, world.chestContents.get(key) || []);
-            return;
-          }
-          if (currentHit.blockType === BlockType.CRAFTING_BENCH) {
-            character.triggerInteract();
-            onOpenCrafting?.(true);
-            return;
-          }
-        }
-      }
-
       const hits = raycaster.intersectObjects(mobManager.group.children, true);
       for (const hit of hits) {
         let node: THREE.Object3D | null = hit.object;
@@ -784,30 +745,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
     };
 
-    /**
-     * RIGHT CLICK ACTION:
-     * - Open chest / crafting table
-     * - Place held block
-     */
+    /** RIGHT CLICK ACTION: place the held block. */
     const handleRightClickAction = () => {
       if (!currentHit) return;
 
       const dist = playerPos.distanceTo(new THREE.Vector3(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5));
       if (dist > 7) return;
-
-      // Special interactive blocks
-      if (currentHit.blockType === BlockType.CHEST) {
-        character.triggerInteract();
-        const chestKey = `${currentHit.blockX},${currentHit.blockY},${currentHit.blockZ}`;
-        const chestItems = world.chestContents.get(chestKey) || [];
-        onOpenChest?.(chestKey, chestItems);
-        return;
-      }
-      if (currentHit.blockType === BlockType.CRAFTING_BENCH) {
-        character.triggerInteract();
-        onOpenCrafting?.(true);
-        return;
-      }
 
       // Block Placement
       const curItem = activeItemRef.current;
@@ -1394,7 +1337,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             let speedMultiplier = 1.0;
             if (toolType === 'pickaxe' && (currentHit.blockType === BlockType.STONE || currentHit.blockType === BlockType.COAL_ORE || currentHit.blockType === BlockType.IRON_ORE || currentHit.blockType === BlockType.GOLD_ORE || currentHit.blockType === BlockType.RUBY_ORE)) {
               speedMultiplier = 2.5 * toolTier;
-            } else if (toolType === 'axe' && currentHit.blockType === BlockType.WOOD_LOG) {
+            } else if (toolType === 'axe') {
               speedMultiplier = 3.0 * toolTier;
             }
 

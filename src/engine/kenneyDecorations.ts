@@ -100,7 +100,7 @@ const WALKABLE_SURFACE: Set<BlockType> = new Set([
 const THIN_SURFACE: Set<BlockType> = new Set([
   BlockType.FLOWER_RED, BlockType.FLOWER_YELLOW,
   BlockType.CROPS_WHEAT, BlockType.CROPS_CARROT,
-  BlockType.TORCH, BlockType.LANTERN, BlockType.LEAVES
+  BlockType.LEAVES
 ]);
 
 function pickWeighted(table: Array<[string, number]>, r: number): string {

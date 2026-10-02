@@ -30,8 +30,6 @@ export const BLOCK_DEFS: Record<BlockType, BlockDef> = (() => {
     [BlockType.COBBLESTONE]: { name: 'Cobblestone', hardness: 1.6, soundType: 'stone', dropItemId: 'cobblestone', dropCount: 1 },
     [BlockType.SAND]: { name: 'Sand', hardness: 0.5, soundType: 'sand', dropItemId: 'sand', dropCount: 1 },
     [BlockType.WATER]: { name: 'Water', hardness: 9999, soundType: 'sand' },
-    [BlockType.WOOD_LOG]: { name: 'Wood Log', hardness: 1.2, soundType: 'wood', dropItemId: 'wood_log', dropCount: 1 },
-    [BlockType.WOOD_PLANKS]: { name: 'Wooden Planks', hardness: 1.0, soundType: 'wood', dropItemId: 'wood_planks', dropCount: 1 },
     [BlockType.LEAVES]: { name: 'Leaves', hardness: 0.25, soundType: 'grass', dropItemId: 'leaves', dropCount: 1 },
     [BlockType.BRICK]: { name: 'Bricks', hardness: 1.8, soundType: 'stone', dropItemId: 'brick', dropCount: 1 },
     [BlockType.GLASS]: { name: 'Glass', hardness: 0.4, soundType: 'glass', dropItemId: 'glass', dropCount: 1 },
@@ -43,22 +41,9 @@ export const BLOCK_DEFS: Record<BlockType, BlockDef> = (() => {
       isEmissive: true, lightColor: 0xff3355, lightIntensity: 1.5,
       dropItemId: 'ruby', dropCount: 1
     },
-    [BlockType.TORCH]: {
-      name: 'Torch', hardness: 0.1, soundType: 'wood',
-      isEmissive: true, lightColor: 0xffaa33, lightIntensity: 2.0,
-      dropItemId: 'torch', dropCount: 1
-    },
     [BlockType.FLOWER_RED]: { name: 'Red Poppy', hardness: 0.1, soundType: 'grass', dropItemId: 'flower_red', dropCount: 1 },
     [BlockType.FLOWER_YELLOW]: { name: 'Dandelion', hardness: 0.1, soundType: 'grass', dropItemId: 'flower_yellow', dropCount: 1 },
-    [BlockType.CRAFTING_BENCH]: { name: 'Crafting Table', hardness: 1.2, soundType: 'wood', dropItemId: 'crafting_bench', dropCount: 1 },
-    [BlockType.CHEST]: { name: 'Treasure Chest', hardness: 1.2, soundType: 'wood', dropItemId: 'chest', dropCount: 1 },
     [BlockType.STONE_BRICKS]: { name: 'Stone Bricks', hardness: 1.7, soundType: 'stone', dropItemId: 'stone_bricks', dropCount: 1 },
-    [BlockType.BOOKSHELF]: { name: 'Bookshelf', hardness: 1.0, soundType: 'wood', dropItemId: 'bookshelf', dropCount: 1 },
-    [BlockType.LANTERN]: {
-      name: 'Lantern', hardness: 0.5, soundType: 'glass',
-      isEmissive: true, lightColor: 0xffdd66, lightIntensity: 2.5,
-      dropItemId: 'lantern', dropCount: 1
-    },
     [BlockType.SNOW]: { name: 'Snow Block', hardness: 0.3, soundType: 'sand', dropItemId: 'snow_block', dropCount: 1 },
     [BlockType.SNOW_GRASS]: { name: 'Snowy Grass Block', hardness: 0.6, soundType: 'grass', dropItemId: 'dirt', dropCount: 1 },
     [BlockType.FARMLAND]: { name: 'Tilled Farmland', hardness: 0.6, soundType: 'grass', dropItemId: 'dirt', dropCount: 1 },
@@ -94,17 +79,16 @@ export const BLOCK_DEFS: Record<BlockType, BlockDef> = (() => {
 const TERRAIN_MATERIALS: BlockType[] = [
   BlockType.GRASS, BlockType.DIRT, BlockType.SAND, BlockType.SNOW, BlockType.SNOW_GRASS,
   BlockType.STONE, BlockType.COAL_ORE, BlockType.IRON_ORE, BlockType.GOLD_ORE,
-  BlockType.RUBY_ORE, BlockType.WATER, BlockType.WOOD_PLANKS, BlockType.WOOD_LOG,
+  BlockType.RUBY_ORE, BlockType.WATER,
   BlockType.COBBLESTONE, BlockType.STONE_BRICKS, BlockType.BRICK, BlockType.GLASS,
-  BlockType.BOOKSHELF, BlockType.CHEST, BlockType.CRAFTING_BENCH, BlockType.TORCH,
-  BlockType.LANTERN, BlockType.FLOWER_RED, BlockType.FLOWER_YELLOW,
+  BlockType.FLOWER_RED, BlockType.FLOWER_YELLOW,
   BlockType.CROPS_WHEAT, BlockType.CROPS_CARROT, BlockType.LEAVES, BlockType.FARMLAND
 ];
 
 export interface WorldStructure {
   id: string;
   name: string;
-  type: 'cottage' | 'shrine' | 'ruins' | 'watchtower' | 'chest' | 'bench' | 'camp';
+  type: 'cottage' | 'shrine' | 'ruins' | 'watchtower' | 'camp';
   x: number;
   y: number;
   z: number;
@@ -584,11 +568,7 @@ export class VoxelWorld {
     chunk.setLocalBlock(lx, y, lz, type);
     chunk.rebuild(this, this.occludedCoords);
 
-    if (type === BlockType.CRAFTING_BENCH) {
-      this.registerStructure('bench', 'Crafting Table', x, y, z);
-    } else if (type === BlockType.CHEST) {
-      this.registerStructure('chest', 'Treasure Chest', x, y, z);
-    } else if (type === BlockType.AIR) {
+    if (type === BlockType.AIR) {
       this.structures = this.structures.filter(s => !(s.x === x && s.y === y && s.z === z));
     }
 
@@ -615,9 +595,6 @@ export class VoxelWorld {
     if (oldType === BlockType.AIR) return BlockType.AIR;
 
     this.setBlock(x, y, z, BlockType.AIR);
-    if (oldType === BlockType.TORCH || oldType === BlockType.LANTERN) {
-      this.lightSources = this.lightSources.filter(ls => ls.x !== x || ls.y !== y || ls.z !== z);
-    }
     return oldType;
   }
 
@@ -634,14 +611,6 @@ export class VoxelWorld {
     if (!replaceable) return false;
 
     this.setBlock(x, y, z, type);
-
-    if (type === BlockType.TORCH || type === BlockType.LANTERN) {
-      this.lightSources.push({
-        x, y, z,
-        color: type === BlockType.TORCH ? 0xff9933 : 0xffcc55,
-        intensity: type === BlockType.TORCH ? 3.5 : 4.0
-      });
-    }
     return true;
   }
 
@@ -714,7 +683,7 @@ export class VoxelWorld {
     // Plank floor on a cobble footing
     for (let dx = 0; dx < w; dx++) {
       for (let dz = 0; dz < d; dz++) {
-        chunk.setLocalBlock(localX + dx, baseY, localZ + dz, BlockType.WOOD_PLANKS);
+        chunk.setLocalBlock(localX + dx, baseY, localZ + dz, BlockType.STONE_BRICKS);
         for (let fy = baseY - 1; fy >= 1; fy--) {
           const b = chunk.getLocalBlock(localX + dx, fy, localZ + dz);
           if (b === BlockType.AIR || b === BlockType.WATER) {
@@ -735,51 +704,38 @@ export class VoxelWorld {
               chunk.setLocalBlock(localX + dx, baseY + dy, localZ + dz, BlockType.GLASS);
               continue;
             }
-            const b = dy === h ? BlockType.WOOD_PLANKS : BlockType.STONE_BRICKS;
+            // Brick courses, capped with a cobble course
+            const b = dy === h ? BlockType.COBBLESTONE : (dy % 2 === 0 ? BlockType.BRICK : BlockType.STONE_BRICKS);
             chunk.setLocalBlock(localX + dx, baseY + dy, localZ + dz, b);
           }
         }
       }
 
-      chunk.setLocalBlock(localX + 1, baseY + 1, localZ + 4, BlockType.CRAFTING_BENCH);
-      chunk.setLocalBlock(localX + 1, baseY + 1, localZ + 3, BlockType.BOOKSHELF);
-      chunk.setLocalBlock(localX + 4, baseY + 1, localZ + 4, BlockType.CHEST);
-      chunk.setLocalBlock(localX + 3, baseY + 3, localZ, BlockType.LANTERN);
-
-      const chestKey = `${startX + localX + 4},${baseY + 1},${startZ + localZ + 4}`;
-      if (!this.chestContents.has(chestKey)) {
-        this.chestContents.set(chestKey, [
-          { id: 'iron_sword', name: 'Iron Broadsword', type: 'weapon', count: 1, maxStack: 1, damage: 7, tier: 3, description: 'Sharp forged iron blade' },
-          { id: 'iron_pickaxe', name: 'Iron Pickaxe', type: 'tool', count: 1, maxStack: 1, toolType: 'pickaxe', tier: 3, description: 'Sturdy mining pickaxe' },
-          { id: 'ruby', name: 'Luminous Ruby', type: 'resource', count: 4, maxStack: 64, description: 'Radiant magical gemstone' },
-          { id: 'gold_ore', name: 'Gold Ore', type: 'resource', count: 6, maxStack: 64, description: 'Precious gold vein ore' },
-          { id: 'torch', name: 'Torch', type: 'block', blockType: BlockType.TORCH, count: 16, maxStack: 64, description: 'Provides warm illumination' }
-        ]);
-      }
-
+      // A glowing brazier in the hearth: ruby ore is the only emissive block
+      // left in the registry, so it stands in for the old lantern.
+      chunk.setLocalBlock(localX + 3, baseY + 1, localZ, BlockType.RUBY_ORE);
       this.lightSources.push({
-        x: startX + localX + 3, y: baseY + 3, z: startZ + localZ,
-        color: 0xffaa33, intensity: 2.2
+        x: startX + localX + 3, y: baseY + 1, z: startZ + localZ,
+        color: 0xff6a4a, intensity: 2.2
       });
+      // Overgrown corner planters
+      chunk.setLocalBlock(localX + 1, baseY + 1, localZ + 4, BlockType.LEAVES);
+      chunk.setLocalBlock(localX + 4, baseY + 1, localZ + 4, BlockType.FLOWER_YELLOW);
       this.registerStructure('cottage', 'Ruin Cottage Outpost', startX + localX + 3, baseY, startZ + localZ + 3);
-      this.registerStructure('chest', 'Treasure Chest', startX + localX + 4, baseY + 1, startZ + localZ + 4);
-      this.registerStructure('bench', 'Crafting Table', startX + localX + 1, baseY + 1, startZ + localZ + 4);
     } else {
-      // Open-air shrine: four lantern pillars around a ruby monolith
+      // Open-air shrine: four pillars around a ruby monolith, each capped
+      // with a gold course instead of the old lantern block.
       const corners: Array<[number, number]> = [[0, 0], [w - 1, 0], [0, d - 1], [w - 1, d - 1]];
       for (const [px, pz] of corners) {
         chunk.setLocalBlock(localX + px, baseY + 1, localZ + pz, BlockType.STONE_BRICKS);
-        chunk.setLocalBlock(localX + px, baseY + 2, localZ + pz, BlockType.LANTERN);
-        this.lightSources.push({
-          x: startX + localX + px, y: baseY + 2, z: startZ + localZ + pz,
-          color: 0x93c5fd, intensity: 2.0
-        });
+        chunk.setLocalBlock(localX + px, baseY + 2, localZ + pz, BlockType.STONE_BRICKS);
+        chunk.setLocalBlock(localX + px, baseY + 3, localZ + pz, BlockType.GOLD_ORE);
       }
       const mx = localX + 2;
       const mz = localZ + 2;
       chunk.setLocalBlock(mx, baseY + 1, mz, BlockType.RUBY_ORE);
       chunk.setLocalBlock(mx, baseY + 2, mz, BlockType.GOLD_ORE);
-      chunk.setLocalBlock(mx, baseY + 3, mz, BlockType.LANTERN);
+      chunk.setLocalBlock(mx, baseY + 3, mz, BlockType.RUBY_ORE);
       this.lightSources.push({
         x: startX + mx, y: baseY + 3, z: startZ + mz, color: 0xff5588, intensity: 2.4
       });
@@ -892,7 +848,7 @@ export class VoxelWorld {
         for (let by = py; by <= py + 6; by++) {
           const b = this.peek(bx, by, bz);
           if (b === BlockType.AIR || b === BlockType.WATER) continue;
-          if (b === BlockType.CHEST || b === BlockType.CRAFTING_BENCH || b === BlockType.TORCH || b === BlockType.LANTERN) continue;
+          if (b === BlockType.RUBY_ORE) continue;
           if (this.isPlayerInsideBuilding) {
             next.add(`${bx},${by},${bz}`);
           } else if (dx * dx + dz * dz <= 18 && by >= py + 1) {
