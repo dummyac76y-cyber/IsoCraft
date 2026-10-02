@@ -7,6 +7,7 @@ import { WorldModal } from './components/WorldModal';
 import { HelpModal } from './components/HelpModal';
 import { DeathModal } from './components/DeathModal';
 import { MobileControls } from './components/MobileControls';
+import { PixelPanel } from './components/PixelPanel';
 import { createTouchInput } from './engine/input';
 import { cycleFromDate } from './engine/dayNight';
 import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, BlockType } from './types';
@@ -30,6 +31,8 @@ const safeSetItem = (key: string, value: string): void => {
     // Silently ignore storage quota or security errors
   }
 };
+
+const PLAYER_NAME = 'Riven';
 
 export default function App() {
   // --- Character Customization State ---
@@ -233,14 +236,6 @@ export default function App() {
     sound.setMuted(isMuted);
   }, [isMuted]);
 
-  // Day/Night progression clock
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setDayTime(prev => (prev + 0.001) % 1);
-    }, 400);
-    return () => clearInterval(timer);
-  }, []);
-
   // Hotkey listener for inventory, customizer, hotbar slots 1-9, Q/E/R, and +/- zoom
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -392,7 +387,7 @@ export default function App() {
   const isAnyModalOpen = isInventoryOpen || isCustomizerOpen || isWorldModalOpen || isHelpOpen || isDead;
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-[var(--ink-900)] select-none">
+    <div className="relative h-screen w-screen overflow-hidden select-none" style={{ background: 'var(--px-void)' }}>
       {/* 3D Three.js Infinite Voxel Sandbox Canvas */}
       <GameCanvas
         customization={customization}
@@ -438,10 +433,8 @@ export default function App() {
         gameMode={gameMode}
         setGameMode={setGameMode}
         dayTime={dayTime}
-        setDayTime={setDayTime}
         isMuted={isMuted}
         setIsMuted={setIsMuted}
-        onRotateCamera={handleRotateCamera}
         onResetCamera={handleResetCamera}
         autoRotateCamera={autoRotateCamera}
         onToggleAutoRotateCamera={handleToggleAutoRotateCamera}
@@ -459,11 +452,10 @@ export default function App() {
         onOpenCustomizer={() => setIsCustomizerOpen(true)}
         onOpenWorldModal={() => setIsWorldModalOpen(true)}
         onOpenHelp={() => setIsHelpOpen(true)}
-        touchShiftMode={touchShiftMode}
-        onToggleTouchShiftMode={handleToggleTouchShiftMode}
         worldRef={worldRef}
         playerPosRef={playerPosRef}
         cameraAngle={cameraAngle}
+        playerName={PLAYER_NAME}
         timeOffsetHours={timeOffsetHours}
         onShiftTime={(hours) => setTimeOffsetHours(prev => (((prev + hours) % 24) + 24) % 24)}
       />
@@ -471,13 +463,13 @@ export default function App() {
       {/* NPC conversation bubble */}
       {npcDialogue && (
         <div className="pointer-events-none absolute inset-x-0 bottom-32 z-30 flex justify-center px-4">
-          <div className="panel max-w-md px-4 py-3">
+          <PixelPanel className="px-speech" notched padding={6}>
             <div className="flex items-center gap-2">
-              <span className="text-[12px] font-bold text-[var(--gold-soft)]">{npcDialogue.name}</span>
-              <span className="eyebrow">{npcDialogue.role}</span>
+              <span className="px-title" style={{ color: 'var(--px-gold)' }}>{npcDialogue.name}</span>
+              <span className="px-label">{npcDialogue.role}</span>
             </div>
-            <p className="body-sm mt-1.5 text-[var(--text-hi)]">{npcDialogue.line}</p>
-          </div>
+            <p className="px-copy mt-1.5">{npcDialogue.line}</p>
+          </PixelPanel>
         </div>
       )}
 

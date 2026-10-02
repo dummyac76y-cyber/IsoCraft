@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Minimize2, MapPin } from 'lucide-react';
+import { PixelIcon } from './PixelIcon';
 import { VoxelWorld } from '../engine/world';
 import { BlockType } from '../types';
 
@@ -267,12 +267,14 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
 
   return (
     <div className="pointer-events-auto flex flex-col items-end gap-1 select-none">
-      <div className="panel relative p-1.5">
+      <div className="px-frame relative" style={{ padding: 4 }}>
         {/* Header Bar: biome label + view controls */}
         <div className="mb-1 flex items-center justify-between gap-2">
           <div className="flex max-w-[140px] items-center gap-1 text-[var(--gold)]">
-            <MapPin size={11} className="shrink-0 text-[var(--sky)]" />
-            <span className="eyebrow truncate">{currentBiome}</span>
+            <span style={{ color: 'var(--px-gold)' }} aria-hidden>
+              <PixelIcon name="compass" size={10} />
+            </span>
+            <span className="px-label truncate">{currentBiome}</span>
           </div>
 
           <div className="flex items-center gap-1">
@@ -282,10 +284,10 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
               disabled={zoomIndex === 0}
               title="Zoom in"
               aria-label="Zoom map in"
-              className="icon-button"
-              style={{ width: 22, height: 22 }}
+              className="px-icon-btn"
+              style={{ width: 20, height: 20 }}
             >
-              <ZoomIn size={12} />
+              <PixelIcon name="plus" size={9} />
             </button>
             <button
               type="button"
@@ -293,26 +295,26 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
               disabled={zoomIndex === radiusList.length - 1}
               title="Zoom out"
               aria-label="Zoom map out"
-              className="icon-button"
-              style={{ width: 22, height: 22 }}
+              className="px-icon-btn"
+              style={{ width: 20, height: 20 }}
             >
-              <ZoomOut size={12} />
+              <PixelIcon name="minus" size={9} />
             </button>
             <button
               type="button"
               onClick={() => setIsExpanded(prev => !prev)}
               title={isExpanded ? 'Collapse map' : 'Expand map'}
               aria-label={isExpanded ? 'Collapse map' : 'Expand map'}
-              className="icon-button"
-              style={{ width: 22, height: 22 }}
+              className="px-icon-btn"
+              style={{ width: 20, height: 20 }}
             >
-              {isExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+              <PixelIcon name={isExpanded ? 'collapse' : 'expand'} size={9} />
             </button>
           </div>
         </div>
 
         {/* Isometric Canvas */}
-        <div className="relative overflow-hidden rounded-md border border-[var(--line-soft)] bg-[var(--ink-900)]">
+        <div className="px-mapview relative overflow-hidden">
           <canvas
             ref={canvasRef}
             width={viewSize}
@@ -323,8 +325,7 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
 
           {/* Compass rose, counter-rotated with the camera */}
           <div
-            className="pointer-events-none absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-md"
-            style={{ background: 'rgba(18,13,10,0.9)', border: '1px solid var(--line-soft)' }}
+            className="px-compass pointer-events-none absolute right-1 top-1 grid h-6 w-6 place-items-center"
             title={`Heading ${compassAngleDeg}°`}
           >
             <div
@@ -345,16 +346,13 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
               className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px]"
               style={{ background: 'rgba(18,13,10,0.9)', border: '1px solid rgba(240,180,41,0.35)', color: 'var(--gold-soft)' }}
             >
-              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--gold)]" />
+              <span className="px-pip animate-pulse" aria-hidden />
               <span>{nearestStructure.name} · {nearestStructure.dist}m</span>
             </div>
           )}
 
           {/* Coordinate readout */}
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-between px-1.5 py-0.5 text-[9px]"
-            style={{ background: 'rgba(18,13,10,0.88)', borderTop: '1px solid var(--line-soft)', color: 'var(--text-lo)' }}
-          >
+          <div className="px-coords pointer-events-none absolute inset-x-0 bottom-0 flex justify-between">
             <span>X {currentCoords.x}</span>
             <span>Y {currentCoords.y}</span>
             <span>Z {currentCoords.z}</span>

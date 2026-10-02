@@ -1,5 +1,6 @@
 import React from 'react';
-import { X, Gamepad2, Eye, Sparkles, Map, Smartphone } from 'lucide-react';
+import { PixelModal } from './PixelModal';
+import { PixelIcon, PixelIconName } from './PixelIcon';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -12,7 +13,7 @@ const CORE_BINDS: Array<[string, string]> = [
   ['Jump / swim up', 'Space'],
   ['Mine block / attack', 'Left click'],
   ['Place block / use', 'Right click'],
-  ['Use chest / bench / talk', 'E'],
+  ['Talk, chests, benches', 'E'],
   ['Auto-pathfind', 'Shift + click'],
   ['Open backpack', 'I or Tab'],
   ['Hotbar slots', '1 – 9']
@@ -25,18 +26,19 @@ const CAMERA_BINDS: Array<[string, string]> = [
   ['Zoom (60% – 150%)', 'Wheel or +/-']
 ];
 
+/** Two-column bind list: the action on the left, pixel keycaps on the right. */
 function BindTable({ rows }: { rows: Array<[string, string]> }) {
   return (
-    <div className="keybind-table">
+    <div className="px-binds">
       {rows.map(([label, keys]) => (
-        <div key={label} className="keybind-row">
+        <div key={label} className="px-binds__row">
           <span>{label}</span>
           <span className="flex items-center gap-1">
             {keys.split(/(\s*[+–]\s*|\s*or\s*)/).filter(Boolean).map((part, i) =>
               /^[+–]|or/.test(part.trim()) ? (
-                <span key={i} className="text-[10px] text-[var(--text-lo)]">{part.trim()}</span>
+                <span key={i} className="px-num">{part.trim()}</span>
               ) : (
-                <kbd key={i}>{part.trim()}</kbd>
+                <span key={i} className="px-key">{part.trim()}</span>
               )
             )}
           </span>
@@ -46,78 +48,77 @@ function BindTable({ rows }: { rows: Array<[string, string]> }) {
   );
 }
 
-export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
-
+function Section({ icon, title, tone = 'gold', children }: {
+  icon: PixelIconName;
+  title: string;
+  tone?: 'gold' | 'green';
+  children: React.ReactNode;
+}) {
   return (
-    <div className="modal-scrim" onContextMenu={e => e.preventDefault()}>
-      <div className="panel modal max-w-2xl" role="dialog" aria-modal="true" aria-label="Adventurer's manual">
-        <div className="modal-header">
-          <div className="modal-heading">
-            <div className="modal-icon" aria-hidden><Gamepad2 size={17} /></div>
-            <div className="min-w-0">
-              <h2 className="modal-title">Adventurer's manual</h2>
-              <p className="modal-sub">Controls &amp; how the world works</p>
-            </div>
-          </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="modal-body">
-          <section className="flex flex-col gap-2">
-            <span className="label flex items-center gap-2">
-              <Gamepad2 size={12} className="text-[var(--gold)]" />
-              Movement &amp; world
-            </span>
-            <BindTable rows={CORE_BINDS} />
-          </section>
-
-          <section className="flex flex-col gap-2">
-            <span className="label flex items-center gap-2">
-              <Eye size={12} className="text-[var(--gold)]" />
-              Camera
-            </span>
-            <BindTable rows={CAMERA_BINDS} />
-          </section>
-
-          <section className="well flex flex-col gap-2 p-3">
-            <span className="label flex items-center gap-2">
-              <Smartphone size={12} className="text-[var(--gold)]" />
-              On a phone or tablet
-            </span>
-            <p className="body-sm">
-              The stick on the left drives movement; hold <b>SPRINT</b> above the hotbar to run.
-              On the right, tap <b>MINE</b>, <b>PLACE</b>, <b>INTERACT</b> or <b>GO</b>, and jump from the
-              large round pad. Tap the world to aim. The camera column on the far right rotates,
-              re-centres and zooms the view.
-            </p>
-          </section>
-
-          <section className="well flex flex-col gap-2 p-3">
-            <span className="label flex items-center gap-2">
-              <Sparkles size={12} className="text-[var(--leaf)]" />
-              Occlusion &amp; endless terrain
-            </span>
-            <p className="body-sm">
-              <b className="text-[var(--text-hi)]">Clear view.</b> Walls and terrain between you and the
-              camera fade away, so your hero, chests and NPCs are never hidden behind a cliff.
-            </p>
-            <p className="body-sm">
-              <b className="text-[var(--text-hi)]">Endless world.</b> Terrain, biomes, rivers, caves, ore
-              seams, camps and shrines stream in around you in every direction. There are no borders.
-            </p>
-          </section>
-        </div>
-
-        <div className="modal-footer">
-          <button type="button" className="btn btn-primary" onClick={onClose}>
-            <Map size={15} />
-            Back to the world
-          </button>
-        </div>
-      </div>
-    </div>
+    <section className="flex flex-col gap-2">
+      <span className="px-label flex items-center gap-2">
+        <span style={{ color: tone === 'gold' ? 'var(--px-gold)' : 'var(--px-energy)' }} aria-hidden>
+          <PixelIcon name={icon} size={11} />
+        </span>
+        {title}
+      </span>
+      {children}
+    </section>
   );
-};
+}
+
+export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => (
+  <PixelModal
+    isOpen={isOpen}
+    onClose={onClose}
+    title="Adventurer's manual"
+    subtitle="Controls and how the world works"
+    icon="book"
+    width="max-w-2xl"
+    footer={
+      <button type="button" className="px-btn px-btn--gold" onClick={onClose}>
+        <PixelIcon name="map" size={12} />
+        Back to the world
+      </button>
+    }
+  >
+    <Section icon="boot" title="Movement & world">
+      <BindTable rows={CORE_BINDS} />
+    </Section>
+
+    <Section icon="compass" title="Camera">
+      <BindTable rows={CAMERA_BINDS} />
+    </Section>
+
+    <section className="px-well flex flex-col gap-2">
+      <span className="px-label flex items-center gap-2">
+        <span style={{ color: 'var(--px-gold)' }} aria-hidden>
+          <PixelIcon name="hand" size={11} />
+        </span>
+        On a phone or tablet
+      </span>
+      <p className="px-copy">
+        The stick on the left drives movement, with <b>SPRINT</b> just above it. On the right tap
+        <b> TALK</b>, <b>BUILD</b>, <b>MINE</b> or <b>GO</b>, and jump from the wide pad underneath.
+        Tap the world to aim. The column on the far right rotates, re-centres and zooms the view.
+      </p>
+    </section>
+
+    <Section icon="spark" title="Occlusion & endless terrain" tone="green">
+      <div className="px-well flex flex-col gap-2">
+        <p className="px-copy">
+          <b>Clear view.</b> Walls and terrain between you and the camera fade away, so your hero,
+          chests and NPCs are never hidden behind a cliff.
+        </p>
+        <p className="px-copy">
+          <b>Endless world.</b> Terrain, biomes, rivers, caves, ore seams, camps and shrines stream
+          in around you in every direction. There are no borders.
+        </p>
+        <p className="px-copy">
+          <b>Your clock.</b> The sun follows the time on your device, so dawn and dusk land when they
+          do outside. Skip ahead a day from the pause menu.
+        </p>
+      </div>
+    </Section>
+  </PixelModal>
+);

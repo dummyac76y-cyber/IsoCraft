@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { X, User, Shield } from 'lucide-react';
 import { CharacterCustomization } from '../types';
 import { CharacterModel } from '../engine/character';
+import { PixelModal } from './PixelModal';
+import { PixelIcon } from './PixelIcon';
 
 interface CharacterModalProps {
   isOpen: boolean;
@@ -126,8 +127,85 @@ export const CharacterModal: React.FC<CharacterModalProps> = ({
     };
   }, [isOpen, customization]);
 
-  if (!isOpen) return null;
+  return (
+    <PixelModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Wardrobe"
+      subtitle="Live 3D preview"
+      icon="user"
+      width="max-w-3xl"
+      footer={
+        <button type="button" className="px-btn px-btn--gold" onClick={onClose}>Done</button>
+      }
+    >
+      <div className="md:grid md:grid-cols-2 md:gap-4">
+        <div className="flex flex-col gap-2">
+          <div ref={previewRef} className="px-well h-64 overflow-hidden" />
+          <span className="px-label text-center">Your hero, rendered live</span>
+        </div>
 
+        <div className="flex flex-col gap-3">
+          <section className="px-well">
+            <span className="px-label">Hairstyle</span>
+            <div className="px-grid mt-2">
+              {HAIR_STYLES.map(style => (
+                <button
+                  key={style.id}
+                  type="button"
+                  onClick={() => setCustomization({ ...customization, hairStyle: style.id })}
+                  className={`px-option ${customization.hairStyle === style.id ? 'is-selected' : ''}`}
+                >
+                  <span className="px-title">{style.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <ColorPicker
+            label="Hair colour"
+            colors={HAIR_COLORS}
+            value={customization.hairColor}
+            onChange={value => setCustomization({ ...customization, hairColor: value })}
+          />
+          <ColorPicker
+            label="Complexion"
+            colors={SKIN_TONES}
+            value={customization.skinTone}
+            onChange={value => setCustomization({ ...customization, skinTone: value })}
+          />
+          <ColorPicker
+            label="Tunic dye"
+            colors={TUNIC_COLORS}
+            value={customization.tunicColor}
+            onChange={value => setCustomization({ ...customization, tunicColor: value })}
+          />
+
+          <section className="px-well">
+            <span className="px-label flex items-center gap-1.5">
+              <span style={{ color: 'var(--px-gold)' }} aria-hidden>
+                <PixelIcon name="skull" size={10} />
+              </span>
+              Armour tier
+            </span>
+            <div className="px-grid mt-2">
+              {ARMOR_TIERS.map(a => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => setCustomization({ ...customization, armorTier: a.id })}
+                  className={`px-option ${customization.armorTier === a.id ? 'is-selected' : ''}`}
+                >
+                  <span className="px-title">{a.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+    </PixelModal>
+  );
+};
 
 interface ColorOption { name: string; value: string; }
 
@@ -144,10 +222,10 @@ function ColorPicker({
 }) {
   const active = colors.find(c => c.value.toLowerCase() === value.toLowerCase());
   return (
-    <section className="well p-3">
+    <section className="px-well">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="label">{label}</span>
-        <span className="body-sm text-[10px]">{active?.name ?? value}</span>
+        <span className="px-label">{label}</span>
+        <span className="px-body">{active?.name ?? value}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
         {colors.map(c => (
@@ -155,7 +233,7 @@ function ColorPicker({
             key={c.value}
             type="button"
             onClick={() => onChange(c.value)}
-            className={`swatch ${value.toLowerCase() === c.value.toLowerCase() ? 'is-selected' : ''}`}
+            className={`px-swatch ${value.toLowerCase() === c.value.toLowerCase() ? 'is-selected' : ''}`}
             style={{ backgroundColor: c.value }}
             aria-label={c.name}
             title={c.name}
@@ -165,90 +243,3 @@ function ColorPicker({
     </section>
   );
 }
-
-  return (
-    <div className="modal-scrim" onContextMenu={e => e.preventDefault()}>
-      <div className="panel modal max-w-3xl" role="dialog" aria-modal="true" aria-label="Character wardrobe">
-        <div className="modal-header">
-          <div className="modal-heading">
-            <div className="modal-icon" aria-hidden><User size={17} /></div>
-            <div className="min-w-0">
-              <h2 className="modal-title">Wardrobe</h2>
-              <p className="modal-sub">Live 3D preview</p>
-            </div>
-          </div>
-          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="modal-body md:grid md:grid-cols-2 md:gap-5 md:overflow-visible">
-          <div className="flex flex-col gap-2">
-            <div ref={previewRef} className="well h-64 overflow-hidden" />
-            <span className="eyebrow text-center">Your hero, rendered live</span>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            <section className="well p-3">
-              <span className="label">Hairstyle</span>
-              <div className="mt-2 grid grid-cols-1 gap-1.5">
-                {HAIR_STYLES.map(style => (
-                  <button
-                    key={style.id}
-                    type="button"
-                    onClick={() => setCustomization({ ...customization, hairStyle: style.id })}
-                    className={`option-card !py-2 ${customization.hairStyle === style.id ? 'is-selected' : ''}`}
-                  >
-                    <span className="option-title">{style.label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <ColorPicker
-              label="Hair colour"
-              colors={HAIR_COLORS}
-              value={customization.hairColor}
-              onChange={value => setCustomization({ ...customization, hairColor: value })}
-            />
-            <ColorPicker
-              label="Complexion"
-              colors={SKIN_TONES}
-              value={customization.skinTone}
-              onChange={value => setCustomization({ ...customization, skinTone: value })}
-            />
-            <ColorPicker
-              label="Tunic dye"
-              colors={TUNIC_COLORS}
-              value={customization.tunicColor}
-              onChange={value => setCustomization({ ...customization, tunicColor: value })}
-            />
-
-            <section className="well p-3">
-              <span className="label flex items-center gap-1.5">
-                <Shield size={12} className="text-[var(--gold)]" />
-                Armour tier
-              </span>
-              <div className="mt-2 flex flex-col gap-1.5">
-                {ARMOR_TIERS.map(a => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => setCustomization({ ...customization, armorTier: a.id })}
-                    className={`option-card !py-2 ${customization.armorTier === a.id ? 'is-selected' : ''}`}
-                  >
-                    <span className="option-title">{a.label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          </div>
-        </div>
-
-        <div className="modal-footer">
-          <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
-        </div>
-      </div>
-    </div>
-  );
-};
