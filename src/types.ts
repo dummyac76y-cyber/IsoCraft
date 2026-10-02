@@ -106,7 +106,7 @@ export interface FloatingText {
 
 export interface MobEntity {
   id: string;
-  type: 'slime' | 'skeleton' | 'goblin' | 'sheep' | 'villager';
+  type: 'skeleton' | 'goblin' | 'villager';
   x: number;
   y: number;
   z: number;

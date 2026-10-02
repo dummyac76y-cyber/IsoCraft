@@ -12,6 +12,43 @@ const KENNEY_CHARACTER_MODELS = [
   'character-female-d', 'character-female-e', 'character-female-f'
 ];
 
+/**
+ * Every mob in the game is a rigged Kenney Mini Characters GLB.
+ * Hostile archetypes reuse humanoid models with a per-instance tint so they
+ * read at a glance while sharing the pack's single colormap material.
+ */
+interface MobVisual {
+  models: string[];
+  height: number;
+  /** Optional body tint applied to per-instance material clones */
+  tint?: number;
+  tintStrength?: number;
+  /** Fallback capsule color shown only while the GLB loads */
+  fallbackColor: number;
+}
+
+const MOB_VISUALS: Record<MobEntity['type'], MobVisual> = {
+  villager: {
+    models: KENNEY_CHARACTER_MODELS,
+    height: 1.35,
+    fallbackColor: 0x8b5a2b
+  },
+  skeleton: {
+    models: ['character-male-c', 'character-male-f', 'character-female-d'],
+    height: 1.45,
+    tint: 0xe9e4d3,
+    tintStrength: 0.7,
+    fallbackColor: 0xd8d6c8
+  },
+  goblin: {
+    models: ['character-male-b', 'character-male-e', 'character-female-b'],
+    height: 1.0,
+    tint: 0x59b544,
+    tintStrength: 0.6,
+    fallbackColor: 0x4a8c3d
+  }
+};
+
 export class MobManager {
   public group: THREE.Group;
   public mobs: MobEntity[] = [];
@@ -37,10 +74,10 @@ export class MobManager {
       vy: 0,
       vz: 0,
       rotationY: Math.random() * Math.PI * 2,
-      hp: type === 'slime' ? 12 : type === 'skeleton' ? 24 : type === 'goblin' ? 18 : type === 'villager' ? 30 : 8,
-      maxHp: type === 'slime' ? 12 : type === 'skeleton' ? 24 : type === 'goblin' ? 18 : type === 'villager' ? 30 : 8,
-      damage: type === 'slime' ? 3 : type === 'skeleton' ? 5 : type === 'goblin' ? 4 : 0,
-      name: type === 'slime' ? 'Jelly Slime' : type === 'skeleton' ? 'Crypt Skeleton' : type === 'goblin' ? 'Cave Goblin' : type === 'villager' ? 'Wandering Trader (NPC)' : 'Fluffy Sheep',
+      hp: type === 'skeleton' ? 24 : type === 'goblin' ? 18 : 30,
+      maxHp: type === 'skeleton' ? 24 : type === 'goblin' ? 18 : 30,
+      damage: type === 'skeleton' ? 5 : type === 'goblin' ? 4 : 0,
+      name: type === 'skeleton' ? 'Crypt Skeleton' : type === 'goblin' ? 'Cave Goblin' : 'Wandering Trader (NPC)',
       isAggro: false,
       lastAttackTime: 0,
       stateTimer: 0
@@ -53,200 +90,81 @@ export class MobManager {
     return mob;
   }
 
-  // Create 3D semi-blocky model for mob
+  // Mob body: an instant fallback capsule plus the rigged Kenney GLB
   private createMobMesh(mob: MobEntity): THREE.Group {
     const mobGroup = new THREE.Group();
     mobGroup.position.set(mob.x, mob.y, mob.z);
     mobGroup.userData = { mobId: mob.id, mob };
 
-    if (mob.type === 'slime') {
-      // Bouncy translucent green gelatin cube
-      const slimeGeo = new THREE.BoxGeometry(0.7, 0.7, 0.7);
-      const slimeMat = new THREE.MeshLambertMaterial({
-        color: 0x44dd66,
-        transparent: true,
-        opacity: 0.85
-      });
-      const outerCube = new THREE.Mesh(slimeGeo, slimeMat);
-      outerCube.castShadow = true;
-      mobGroup.add(outerCube);
+    const visual = MOB_VISUALS[mob.type];
 
-      // Inner glowing core
-      const coreGeo = new THREE.BoxGeometry(0.35, 0.35, 0.35);
-      const coreMat = new THREE.MeshLambertMaterial({
-        color: 0x88ffaa,
-        emissive: new THREE.Color(0x228833),
-        emissiveIntensity: 0.5
-      });
-      const core = new THREE.Mesh(coreGeo, coreMat);
-      mobGroup.add(core);
+    // Tiny capsule placeholder: guarantees a visible body for the few ms the
+    // GLB takes to load (disposed as soon as the Kenney model attaches)
+    const fallback = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.22, visual.height - 0.44, 4, 8),
+      new THREE.MeshLambertMaterial({ color: visual.fallbackColor })
+    );
+    fallback.position.y = visual.height / 2;
+    fallback.castShadow = true;
+    mobGroup.add(fallback);
+    mobGroup.userData.fallback = fallback;
 
-      // Cute pixel eyes
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x113311 });
-      const leftEye = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.04), eyeMat);
-      leftEye.position.set(-0.16, 0.1, 0.36);
-      const rightEye = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.04), eyeMat);
-      rightEye.position.set(0.16, 0.1, 0.36);
-      mobGroup.add(leftEye, rightEye);
-    } else if (mob.type === 'skeleton') {
-      // Semi-blocky skeleton
-      const boneMat = new THREE.MeshLambertMaterial({ color: 0xe0e0e0 });
-      const skullGeo = new THREE.BoxGeometry(0.38, 0.38, 0.38);
-      const skull = new THREE.Mesh(skullGeo, boneMat);
-      skull.position.set(0, 0.85, 0);
-      skull.castShadow = true;
-      mobGroup.add(skull);
-
-      // Red glowing eye sockets
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2222 });
-      const eye1 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.04), eyeMat);
-      eye1.position.set(-0.1, 0.88, 0.2);
-      const eye2 = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.04), eyeMat);
-      eye2.position.set(0.1, 0.88, 0.2);
-      mobGroup.add(eye1, eye2);
-
-      // Ribcage torso
-      const ribGeo = new THREE.BoxGeometry(0.32, 0.4, 0.2);
-      const rib = new THREE.Mesh(ribGeo, boneMat);
-      rib.position.set(0, 0.5, 0);
-      mobGroup.add(rib);
-
-      // Limbs
-      const limbGeo = new THREE.BoxGeometry(0.09, 0.4, 0.09);
-      const leftLeg = new THREE.Mesh(limbGeo, boneMat);
-      leftLeg.position.set(-0.1, 0.2, 0);
-      const rightLeg = new THREE.Mesh(limbGeo, boneMat);
-      rightLeg.position.set(0.1, 0.2, 0);
-      mobGroup.add(leftLeg, rightLeg);
-    } else if (mob.type === 'goblin') {
-      // Green goblin with leather tunic
-      const skinMat = new THREE.MeshLambertMaterial({ color: 0x4a8c3d });
-      const tunicMat = new THREE.MeshLambertMaterial({ color: 0x8c5e32 });
-
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.36), skinMat);
-      head.position.set(0, 0.7, 0);
-      mobGroup.add(head);
-
-      // Pointy goblin ears
-      const earMat = new THREE.MeshLambertMaterial({ color: 0x4a8c3d });
-      const leftEar = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.2, 4), earMat);
-      leftEar.position.set(-0.25, 0.75, 0);
-      leftEar.rotation.z = 1.2;
-      const rightEar = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.2, 4), earMat);
-      rightEar.position.set(0.25, 0.75, 0);
-      rightEar.rotation.z = -1.2;
-      mobGroup.add(leftEar, rightEar);
-
-      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.35, 0.22), tunicMat);
-      torso.position.set(0, 0.4, 0);
-      mobGroup.add(torso);
-    } else if (mob.type === 'villager') {
-      // Friendly RPG Villager / Trader NPC
-      const robeMat = new THREE.MeshLambertMaterial({ color: 0x8b5a2b }); // Rich brown robe
-      const skinMat = new THREE.MeshLambertMaterial({ color: 0xe0a87a }); // Warm skin
-      const beltMat = new THREE.MeshLambertMaterial({ color: 0x2e8540 }); // Emerald green sash
-
-      // Robe torso
-      const robe = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.62, 0.28), robeMat);
-      robe.position.set(0, 0.4, 0);
-      robe.castShadow = true;
-      mobGroup.add(robe);
-
-      // Emerald sash belt
-      const belt = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.09, 0.3), beltMat);
-      belt.position.set(0, 0.38, 0);
-      mobGroup.add(belt);
-
-      // Crossed arms in front
-      const arms = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.16, 0.16), robeMat);
-      arms.position.set(0, 0.46, 0.14);
-      mobGroup.add(arms);
-
-      // Head
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.36, 0.32), skinMat);
-      head.position.set(0, 0.82, 0);
-      mobGroup.add(head);
-
-      // Villager nose
-      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.08), skinMat);
-      nose.position.set(0, 0.8, 0.18);
-      mobGroup.add(nose);
-
-      // Villager brown hood / brow
-      const hoodMat = new THREE.MeshLambertMaterial({ color: 0x6e431f });
-      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.34), hoodMat);
-      hood.position.set(0, 0.98, 0);
-      mobGroup.add(hood);
-
-      // Upgrade to a Kenney Mini Characters GLB model once loaded
-      // (the voxel villager above stays as an instant fallback)
-      const variant = KENNEY_CHARACTER_MODELS[Math.floor(Math.random() * KENNEY_CHARACTER_MODELS.length)];
-      this.attachKenneyNpc(mobGroup, mob, variant, 1.35);
-    } else {
-      // Sheep: white wool cube body + little head
-      const woolMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f0 });
-      const body = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.5, 0.8), woolMat);
-      body.position.set(0, 0.45, 0);
-      body.castShadow = true;
-      mobGroup.add(body);
-
-      const headMat = new THREE.MeshLambertMaterial({ color: 0xe5ceb8 });
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.32), headMat);
-      head.position.set(0, 0.6, 0.45);
-      mobGroup.add(head);
-
-      // Four little wooden block legs
-      const legMat = new THREE.MeshLambertMaterial({ color: 0xd5beaa });
-      const legGeo = new THREE.BoxGeometry(0.12, 0.25, 0.12);
-      const positions = [
-        [-0.2, 0.125, -0.25],
-        [0.2, 0.125, -0.25],
-        [-0.2, 0.125, 0.25],
-        [0.2, 0.125, 0.25]
-      ];
-      positions.forEach(([lx, ly, lz]) => {
-        const leg = new THREE.Mesh(legGeo, legMat);
-        leg.position.set(lx, ly, lz);
-        mobGroup.add(leg);
-      });
-    }
+    const model = visual.models[Math.floor(Math.random() * visual.models.length)];
+    this.attachKenneyNpc(mobGroup, mob, model, visual);
 
     return mobGroup;
   }
 
-  // Replace a mob's voxel shell with an animated Kenney Mini Characters GLB
-  // model (properly cloned skeleton, idle/walk crossfade).
-  // Falls back silently to the voxel model if the asset fails to load.
-  private attachKenneyNpc(group: THREE.Group, mob: MobEntity, model: string, height: number) {
+  // Replace the loading fallback with an animated Kenney Mini Characters GLB
+  // model (properly cloned skeleton, idle/walk crossfade). Hostile archetypes
+  // get per-instance materials tinted so they don't share NPC colors.
+  private attachKenneyNpc(group: THREE.Group, mob: MobEntity, model: string, visual: MobVisual) {
     loadKenneyModel('mini-characters', model)
       .then(loaded => {
         // Mob was defeated before the model finished loading: drop the clone
         if (!this.mobs.includes(mob)) return;
 
-        const character = instantiateKenneyCharacter(loaded, height);
-        if (!character) return; // no usable clips: keep the voxel villager
+        const character = instantiateKenneyCharacter(loaded, visual.height);
+        if (!character) return; // no usable clips: keep the fallback capsule
 
-        // Dispose the temporary voxel shell (all materials/geometries are mob-local)
-        const staleGeometries = new Set<THREE.BufferGeometry>();
-        const staleMaterials = new Set<THREE.Material>();
-        [...group.children].forEach(child => {
-          group.remove(child);
-          child.traverse(obj => {
+        // Apply archetype tint on per-instance material clones (tinted mobs
+        // never mutate the shared pack material used by other characters)
+        if (visual.tint !== undefined) {
+          const strength = visual.tintStrength ?? 0.6;
+          const tintColor = new THREE.Color(visual.tint);
+          const cloneMap = new Map<THREE.Material, THREE.Material>();
+          character.root.traverse(obj => {
             if (obj instanceof THREE.Mesh) {
-              staleGeometries.add(obj.geometry);
-              const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-              mats.forEach(m => staleMaterials.add(m));
+              const mats = (Array.isArray(obj.material) ? obj.material : [obj.material]) as THREE.Material[];
+              const cloned = mats.map(m => {
+                let c = cloneMap.get(m);
+                if (!c) {
+                  c = m.clone() as THREE.MeshLambertMaterial;
+                  const cm = c as THREE.MeshLambertMaterial;
+                  if (cm.color) cm.color.lerp(tintColor, strength);
+                  cloneMap.set(m, c);
+                }
+                return c;
+              });
+              obj.material = Array.isArray(obj.material) ? cloned : cloned[0];
             }
           });
-        });
-        staleGeometries.forEach(g => g.dispose());
-        staleMaterials.forEach(m => m.dispose());
+        }
+
+        // Dispose the temporary fallback capsule
+        const fallback = group.userData.fallback as THREE.Mesh | undefined;
+        if (fallback) {
+          group.remove(fallback);
+          fallback.geometry.dispose();
+          (fallback.material as THREE.Material).dispose();
+          group.userData.fallback = null;
+        }
 
         group.add(character.root);
         group.userData.character = character;
       })
       .catch(() => {
-        // Asset unavailable: keep the original voxel villager
+        // Asset unavailable: keep the fallback capsule
       });
   }
 
@@ -285,7 +203,7 @@ export class MobManager {
     const geo = new THREE.BoxGeometry(0.24, 0.24, 0.24);
     const mat = new THREE.MeshLambertMaterial({
       color,
-      emissive: item.id === 'ruby' ? new THREE.Color(0x550011) : undefined
+      ...(item.id === 'ruby' ? { emissive: new THREE.Color(0x550011) } : {})
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true;
@@ -311,7 +229,7 @@ export class MobManager {
     this.mobs.forEach(mob => {
       mob.stateTimer += delta;
 
-      const isHostileType = mob.type === 'skeleton' || mob.type === 'goblin' || mob.type === 'slime';
+      const isHostileType = mob.type === 'skeleton' || mob.type === 'goblin';
 
       // If player is dead, in creative mode, or mob is passive: completely drop aggro and wander peacefully
       if (isPlayerDead || isCreative || !isHostileType) {
@@ -335,7 +253,7 @@ export class MobManager {
         if (mob.isAggro) {
           // Chase player
           mob.rotationY = Math.atan2(dx, dz);
-          const speed = mob.type === 'slime' ? 1.4 : 1.8;
+          const speed = 1.8;
           mob.vx = Math.sin(mob.rotationY) * speed;
           mob.vz = Math.cos(mob.rotationY) * speed;
 
@@ -363,7 +281,7 @@ export class MobManager {
           }
         }
       } else {
-        // Peaceful wandering (sheep, villagers, or friendly mobs in creative mode)
+        // Peaceful wandering (villagers, or any mob in creative mode)
         if (mob.stateTimer > 3.5) {
           mob.stateTimer = 0;
           if (Math.random() > 0.3) {
@@ -404,10 +322,6 @@ export class MobManager {
       if (groundBlock) {
         mob.y = Math.floor(nextY) + 1.0;
         mob.vy = 0;
-        // Slimes jump!
-        if (mob.type === 'slime' && mob.isAggro && Math.random() < 0.05) {
-          mob.vy = 5.0;
-        }
       } else {
         mob.y = nextY;
       }
@@ -424,12 +338,6 @@ export class MobManager {
           const speed = Math.sqrt(mob.vx * mob.vx + mob.vz * mob.vz);
           character.setLocomotion(Math.min(1, speed / 1.2));
           character.update(delta);
-        }
-
-        // Slime squish/stretch animation
-        if (mob.type === 'slime') {
-          const bounce = Math.sin(Date.now() * 0.008) * 0.15;
-          mesh.scale.set(1 - bounce * 0.5, 1 + bounce, 1 - bounce * 0.5);
         }
       }
     });
@@ -519,16 +427,7 @@ export class MobManager {
       }
 
       // Spawn drops
-      if (mob.type === 'slime') {
-        this.spawnDrop({
-          id: 'slime_ball',
-          name: 'Slime Gel',
-          type: 'resource',
-          count: 1 + Math.floor(Math.random() * 2),
-          maxStack: 64,
-          description: 'Sticky bouncy green gel'
-        }, mob.x, mob.y + 0.5, mob.z);
-      } else if (mob.type === 'skeleton') {
+      if (mob.type === 'skeleton') {
         this.spawnDrop({
           id: 'bone',
           name: 'Crypt Bone',
