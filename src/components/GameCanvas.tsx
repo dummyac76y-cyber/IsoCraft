@@ -138,7 +138,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -200,7 +200,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             const hostile = Math.random() < 0.5 ? 'skeleton' : 'goblin';
             mobManager.spawnMob(hostile, mx + 0.5, groundY, mz + 0.5);
           } else {
-            const peaceful = Math.random() < 0.6 ? 'sheep' : 'slime';
+            // Daytime also wanders Kenney villager NPCs into the world
+            const roll = Math.random();
+            const peaceful = roll < 0.45 ? 'sheep' : roll < 0.75 ? 'slime' : 'villager';
             mobManager.spawnMob(peaceful, mx + 0.5, groundY, mz + 0.5);
           }
         }
@@ -1213,6 +1215,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         hemiLight.intensity = 0.42;
         scene.background = new THREE.Color(0x0c152a).lerp(new THREE.Color(0x6eb5f0), t);
       }
+
+      // Only the active celestial light renders a shadow map: halves the
+      // shadow passes (every chunk of the voxel world is drawn into each
+      // map). Guarded so materials only recompile at dawn/dusk transitions.
+      const sunWantsShadow = sunLight.intensity > 0.05;
+      if (sunLight.castShadow !== sunWantsShadow) sunLight.castShadow = sunWantsShadow;
+      const moonWantsShadow = moonLight.intensity > 0.05;
+      if (moonLight.castShadow !== moonWantsShadow) moonLight.castShadow = moonWantsShadow;
 
       // Torch illumination
       const holdsTorch = activeItemRef.current?.id === 'torch';

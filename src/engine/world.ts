@@ -970,7 +970,9 @@ export class VoxelWorld {
 
     // Deterministic Trees & Vegetation in this chunk
     const treeHash = hash2D(cx * 33.7, cz * 47.9, this.seed);
-    const numTrees = Math.floor(treeHash * 3) + 1; // 1 to 3 trees per chunk
+    // Sparse legacy trees: they stay mineable for wood, while the landscape
+    // is dominated by the Kenney GLB forest from KenneyDecorationManager
+    const numTrees = treeHash > 0.6 ? 1 : 0;
 
     for (let t = 0; t < numTrees; t++) {
       const tx = 3 + Math.floor(hash2D(t * 19.3, cx, cz) * 10);
