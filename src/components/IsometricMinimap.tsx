@@ -266,48 +266,53 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
   const compassAngleDeg = Math.round((cameraAngle * 180) / Math.PI) % 360;
 
   return (
-    <div className="pointer-events-auto flex flex-col items-end gap-1 font-pixel select-none">
-      {/* 32-bit Pixel Minimap Container with Vintage Carved Wooden / Stone Frame */}
-      <div className="relative pixel-box-wood p-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.8)]">
-        {/* Header Bar: Biome Badge + Controls */}
-        <div className="flex items-center justify-between gap-1 mb-1 px-1 text-[8px] bg-[#1a120c] border border-[#3d2715] py-0.5">
-          <div className="flex items-center gap-1 text-[#facc15] truncate max-w-[110px] sm:max-w-[140px]">
-            <MapPin className="w-2.5 h-2.5 text-[#38bdf8] flex-shrink-0" />
-            <span className="truncate">{currentBiome.toUpperCase()}</span>
+    <div className="pointer-events-auto flex flex-col items-end gap-1 select-none">
+      <div className="panel relative p-1.5">
+        {/* Header Bar: biome label + view controls */}
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="flex max-w-[140px] items-center gap-1 text-[var(--gold)]">
+            <MapPin size={11} className="shrink-0 text-[var(--sky)]" />
+            <span className="eyebrow truncate">{currentBiome}</span>
           </div>
 
-          <div className="flex items-center gap-0.5">
-            {/* Zoom In */}
+          <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={() => setZoomIndex(prev => Math.max(0, prev - 1))}
               disabled={zoomIndex === 0}
-              title="Minimap Zoom In"
-              className="p-0.5 bg-[#2c1a0e] hover:bg-[#4a2e19] text-[#e5e7eb] disabled:opacity-30 border border-[#4a2e19]"
+              title="Zoom in"
+              aria-label="Zoom map in"
+              className="icon-button"
+              style={{ width: 22, height: 22 }}
             >
-              <ZoomIn className="w-2.5 h-2.5" />
+              <ZoomIn size={12} />
             </button>
-            {/* Zoom Out */}
             <button
+              type="button"
               onClick={() => setZoomIndex(prev => Math.min(radiusList.length - 1, prev + 1))}
               disabled={zoomIndex === radiusList.length - 1}
-              title="Minimap Zoom Out"
-              className="p-0.5 bg-[#2c1a0e] hover:bg-[#4a2e19] text-[#e5e7eb] disabled:opacity-30 border border-[#4a2e19]"
+              title="Zoom out"
+              aria-label="Zoom map out"
+              className="icon-button"
+              style={{ width: 22, height: 22 }}
             >
-              <ZoomOut className="w-2.5 h-2.5" />
+              <ZoomOut size={12} />
             </button>
-            {/* Expand / Minimize */}
             <button
+              type="button"
               onClick={() => setIsExpanded(prev => !prev)}
-              title={isExpanded ? 'Compact Minimap' : 'Expand Minimap'}
-              className="p-0.5 bg-[#2c1a0e] hover:bg-[#4a2e19] text-[#facc15] border border-[#4a2e19]"
+              title={isExpanded ? 'Collapse map' : 'Expand map'}
+              aria-label={isExpanded ? 'Collapse map' : 'Expand map'}
+              className="icon-button"
+              style={{ width: 22, height: 22 }}
             >
-              {isExpanded ? <Minimize2 className="w-2.5 h-2.5" /> : <Maximize2 className="w-2.5 h-2.5" />}
+              {isExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
             </button>
           </div>
         </div>
 
         {/* Isometric Canvas */}
-        <div className="relative border-2 border-[#120e14] bg-[#141118] overflow-hidden">
+        <div className="relative overflow-hidden rounded-md border border-[var(--line-soft)] bg-[var(--ink-900)]">
           <canvas
             ref={canvasRef}
             width={viewSize}
@@ -316,36 +321,43 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
             className="block pixelated"
           />
 
-          {/* Rotating 8-bit Compass Rose Overlay (Top-Right of Minimap) */}
+          {/* Compass rose, counter-rotated with the camera */}
           <div
-            className="absolute top-1.5 right-1.5 w-6 h-6 bg-[#1a120c]/90 border border-[#5c3a21] flex items-center justify-center pointer-events-none shadow-md"
-            title={`Compass Heading: ${compassAngleDeg}°`}
+            className="pointer-events-none absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-md"
+            style={{ background: 'rgba(18,13,10,0.9)', border: '1px solid var(--line-soft)' }}
+            title={`Heading ${compassAngleDeg}°`}
           >
             <div
-              className="relative w-4 h-4 transition-transform duration-100 flex items-center justify-center"
+              className="relative flex h-4 w-4 items-center justify-center transition-transform duration-100"
               style={{ transform: `rotate(${-cameraAngle}rad)` }}
             >
-              <div className="absolute top-0 text-[7px] text-[#ef4444] font-bold leading-none">N</div>
-              <div className="absolute bottom-0 text-[6px] text-[#9ca3af] leading-none">S</div>
-              <div className="absolute right-0 text-[6px] text-[#9ca3af] leading-none">E</div>
-              <div className="absolute left-0 text-[6px] text-[#9ca3af] leading-none">W</div>
-              <div className="w-1 h-1 bg-[#facc15]" />
+              <div className="absolute top-0 text-[7px] font-bold leading-none text-[#ef7266]">N</div>
+              <div className="absolute bottom-0 text-[6px] leading-none text-[var(--text-lo)]">S</div>
+              <div className="absolute right-0 text-[6px] leading-none text-[var(--text-lo)]">E</div>
+              <div className="absolute left-0 text-[6px] leading-none text-[var(--text-lo)]">W</div>
+              <div className="h-1 w-1 rounded-full bg-[var(--gold)]" />
             </div>
           </div>
 
-          {/* Structure Radar Proximity Banner */}
+          {/* Nearest structure proximity banner */}
           {nearestStructure && (
-            <div className="absolute top-1.5 left-1.5 bg-[#18131d]/90 border border-[#6366f1] px-1.5 py-0.5 text-[7px] text-[#c7d2fe] pointer-events-none flex items-center gap-1 shadow">
-              <span className="w-1.5 h-1.5 bg-[#a855f7] inline-block animate-pulse" />
-              <span>{nearestStructure.name.toUpperCase()} ({nearestStructure.dist}M)</span>
+            <div
+              className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px]"
+              style={{ background: 'rgba(18,13,10,0.9)', border: '1px solid rgba(240,180,41,0.35)', color: 'var(--gold-soft)' }}
+            >
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--gold)]" />
+              <span>{nearestStructure.name} · {nearestStructure.dist}m</span>
             </div>
           )}
 
-          {/* Coordinate Readout Badge (Bottom Bar) */}
-          <div className="absolute bottom-0 inset-x-0 bg-[#120d09]/90 border-t border-[#352012] px-1 py-0.5 flex justify-between text-[7px] text-[#a8a29e] pointer-events-none font-mono">
-            <span>X:{currentCoords.x}</span>
-            <span>Y:{currentCoords.y}</span>
-            <span>Z:{currentCoords.z}</span>
+          {/* Coordinate readout */}
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-between px-1.5 py-0.5 text-[9px]"
+            style={{ background: 'rgba(18,13,10,0.88)', borderTop: '1px solid var(--line-soft)', color: 'var(--text-lo)' }}
+          >
+            <span>X {currentCoords.x}</span>
+            <span>Y {currentCoords.y}</span>
+            <span>Z {currentCoords.z}</span>
           </div>
         </div>
       </div>

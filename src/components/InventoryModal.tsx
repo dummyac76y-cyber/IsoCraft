@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Hammer, Package, ArrowRight, Heart } from 'lucide-react';
+import { X, Hammer, Package } from 'lucide-react';
 import { Item, CraftingRecipe } from '../types';
 import { CRAFTING_RECIPES, canCraft } from '../engine/crafting';
 import { sound } from '../engine/sound';
@@ -95,205 +95,171 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({
     }
   };
 
+  const glyphFor = (item: Item): string => {
+    if (item.id === 'ruby') return '💎';
+    if (item.id === 'torch') return '🕯';
+    if (item.type === 'food') return '🍎';
+    if (item.type === 'tool') return '⛏';
+    if (item.type === 'weapon') return '⚔';
+    return '▣';
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 font-pixel select-none">
-      <div className="relative w-full max-w-4xl pixel-box-wood flex flex-col max-h-[88vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 bg-[#24170e] border-b-4 border-[#160e09]">
-          <div className="flex items-center gap-3">
-            <div className="p-2 pixel-box-slot text-[#fbbf24]">
-              {chestItems ? <Package className="w-5 h-5" /> : <Hammer className="w-5 h-5" />}
+    <div className="modal-scrim" onContextMenu={e => e.preventDefault()}>
+      <div className="panel modal max-w-3xl" role="dialog" aria-modal="true" aria-label="Inventory">
+        <div className="modal-header">
+          <div className="modal-heading">
+            <div className="modal-icon" aria-hidden>
+              {chestItems ? <Package size={17} /> : <Hammer size={17} />}
             </div>
-            <div>
-              <h2 className="text-xs sm:text-sm text-[#f5eedc] uppercase">
-                {chestItems ? 'TREASURE CHEST' : isAtBench ? 'CRAFTING BENCH' : 'BACKPACK & CRAFTING'}
+            <div className="min-w-0">
+              <h2 className="modal-title">
+                {chestItems ? 'Treasure chest' : isAtBench ? 'Crafting bench' : 'Backpack'}
               </h2>
-              <p className="text-[8px] text-[#c49a6c] mt-0.5">
+              <p className="modal-sub">
                 {chestItems
-                  ? 'TRANSFER ITEMS TO AND FROM CHEST'
+                  ? 'Tap an item to take it'
                   : isAtBench
-                  ? 'ADVANCED TIER 3 WORKBENCH RECIPES'
-                  : 'BASIC FIELD CRAFTING RECIPES'}
+                  ? 'Workbench blueprints unlocked'
+                  : 'Basic field recipes only'}
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="pixel-btn-danger p-1.5"
-            title="Close (ESC)"
-          >
-            <X className="w-4 h-4 text-[#fef2f2]" />
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close (Esc)">
+            <X size={16} />
           </button>
         </div>
 
-        {/* Content Body */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 overflow-y-auto">
-          {/* Left Column: Storage (Chest and/or Backpack) */}
+        <div className="modal-body md:grid md:grid-cols-2 md:gap-5 md:overflow-visible">
+          {/* Storage column */}
           <div className="flex flex-col gap-4">
-            {/* If Chest Open */}
             {chestItems && (
-              <div className="pixel-box-stone p-3">
-                <div className="flex items-center justify-between mb-2 text-[9px] text-[#fbbf24]">
-                  <span>CHEST CONTENTS</span>
-                  <span className="text-[8px] text-[#9ca3af]">{chestItems.length} / 27</span>
+              <section className="well p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="eyebrow">Chest contents</span>
+                  <span className="num-pixel text-[var(--text-lo)]">{chestItems.length}/27</span>
                 </div>
-                <div className="grid grid-cols-5 gap-1.5 min-h-[90px]">
+                <div className="slot-grid">
                   {chestItems.map((it, idx) => (
                     <button
                       key={idx}
+                      type="button"
                       onClick={() => handleTransferToPlayer(it, idx)}
-                      className="group relative p-1.5 pixel-box-slot hover:bg-[#2e1f14] flex flex-col items-center justify-center transition"
+                      className="slot"
                       title={`Take ${it.name}`}
                     >
-                      <span className="text-base">
-                        {it.type === 'tool' ? '⛏️' : it.type === 'weapon' ? '⚔️' : it.id === 'torch' ? '🔥' : '🧱'}
-                      </span>
-                      <span className="text-[7px] text-[#f5eedc] truncate max-w-[48px]">{it.name}</span>
-                      {it.count > 1 && (
-                        <span className="absolute bottom-1 right-1 text-[8px] text-[#fbbf24] font-bold">
-                          {it.count}
-                        </span>
-                      )}
+                      <span className="hotbar-glyph" aria-hidden>{glyphFor(it)}</span>
+                      <span className="slot-name">{it.name}</span>
+                      {it.count > 1 && <span className="slot-count">{it.count}</span>}
                     </button>
                   ))}
                   {chestItems.length === 0 && (
-                    <div className="col-span-5 py-6 text-center text-[8px] text-[#9ca3af]">
-                      Chest is empty. Store items from your backpack!
-                    </div>
+                    <p className="body-sm col-span-full py-6 text-center">
+                      Empty. Move items in from your backpack.
+                    </p>
                   )}
                 </div>
-              </div>
+              </section>
             )}
 
-            {/* Player Backpack Grid */}
-            <div className="pixel-box-wood p-3">
-              <div className="flex items-center justify-between mb-2 text-[9px] text-[#86efac]">
-                <span>PLAYER BACKPACK</span>
-                <span className="text-[8px] text-[#c49a6c]">{inventory.length} / 27</span>
+            <section className="well p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="eyebrow">Backpack</span>
+                <span className="num-pixel text-[var(--text-lo)]">{inventory.length}/27</span>
               </div>
-              <div className="grid grid-cols-5 gap-1.5 min-h-[140px]">
+              <div className="slot-grid">
                 {inventory.map((it, idx) => (
                   <button
                     key={idx}
+                    type="button"
                     onClick={() => {
-                      if (chestItems) {
-                        handleTransferToChest(it, idx);
-                      } else if (it.type === 'food') {
-                        handleUseItem(it, idx);
-                      }
+                      if (chestItems) handleTransferToChest(it, idx);
+                      else if (it.type === 'food') handleUseItem(it, idx);
                     }}
-                    className={`group relative p-1.5 pixel-box-slot flex flex-col items-center justify-center transition ${
-                      it.type === 'food'
-                        ? 'border-[#22c55e] hover:bg-[#153e1a]'
-                        : 'hover:bg-[#2e1f14]'
-                    }`}
-                    title={it.type === 'food' ? `Click to consume (+${it.healAmount} HP)` : it.description}
+                    className={`slot ${it.type === 'food' ? 'is-highlight' : ''}`}
+                    title={it.type === 'food' ? `Consume (+${it.healAmount} HP)` : it.description}
                   >
-                    <span className="text-base">
-                      {it.type === 'tool' ? '⛏️' : it.type === 'weapon' ? '⚔️' : it.id === 'torch' ? '🔥' : it.id === 'ruby' ? '💎' : it.type === 'food' ? '🌿' : '🧱'}
-                    </span>
-                    <span className="text-[7px] text-[#f5eedc] truncate max-w-[48px]">{it.name}</span>
-                    {it.count > 1 && (
-                      <span className="absolute bottom-1 right-1 text-[8px] text-[#fbbf24] font-bold">
-                        {it.count}
-                      </span>
-                    )}
+                    <span className="hotbar-glyph" aria-hidden>{glyphFor(it)}</span>
+                    <span className="slot-name">{it.name}</span>
+                    {it.count > 1 && <span className="slot-count">{it.count}</span>}
                   </button>
                 ))}
+                {inventory.length === 0 && (
+                  <p className="body-sm col-span-full py-6 text-center">
+                    Your backpack is empty. Punch a tree or dig into terrain to gather materials.
+                  </p>
+                )}
               </div>
-            </div>
+              <p className="body-sm mt-2">
+                {chestItems ? 'Tap an item to store it in the chest.' : 'Tap food to eat it on the spot.'}
+              </p>
+            </section>
           </div>
 
-          {/* Right Column: Crafting Recipes */}
+          {/* Crafting column */}
           <div className="flex flex-col gap-3">
-            <div className="pixel-box-stone p-3 flex flex-col gap-2">
-              <div className="text-[9px] text-[#fde047] uppercase">
-                {isAtBench ? 'WORKBENCH BLUEPRINTS' : 'BASIC BLUEPRINTS'}
-              </div>
-
-              {/* Recipe Selector List */}
-              <div className="grid grid-cols-2 gap-1.5 max-h-[180px] overflow-y-auto pr-1">
+            <section className="well p-3">
+              <span className="eyebrow">{isAtBench ? 'Workbench blueprints' : 'Field blueprints'}</span>
+              <div className="mt-2 grid max-h-[168px] grid-cols-2 gap-2 overflow-y-auto pr-1">
                 {CRAFTING_RECIPES.map(recipe => {
                   const craftable = canCraft(recipe, inventory, isAtBench);
                   const isSelected = selectedRecipe?.id === recipe.id;
-
                   return (
                     <button
                       key={recipe.id}
+                      type="button"
                       onClick={() => setSelectedRecipe(recipe)}
-                      className={`p-2 text-left flex items-center justify-between border-2 transition text-[8px] ${
-                        isSelected
-                          ? 'bg-[#4a3422] border-[#facc15] text-[#fef08a]'
-                          : craftable
-                          ? 'bg-[#181a1e] border-[#22c55e] text-[#f5eedc] hover:bg-[#20242b]'
-                          : 'bg-[#181a1e] border-[#2b2e35] text-[#6b7280] opacity-75'
-                      }`}
+                      className={`option-card !py-2 ${isSelected ? 'is-selected' : ''}`}
+                      style={{ opacity: craftable || isSelected ? 1 : 0.55 }}
                     >
-                      <span className="truncate max-w-[90px]">{recipe.name}</span>
-                      <span className="text-[10px]">
-                        {recipe.result.type === 'tool' ? '⛏️' : recipe.result.type === 'weapon' ? '⚔️' : '🧱'}
-                      </span>
+                      <span className="hotbar-glyph shrink-0" aria-hidden>{glyphFor(recipe.result)}</span>
+                      <span className="option-title">{recipe.name}</span>
                     </button>
                   );
                 })}
               </div>
-            </div>
+            </section>
 
-            {/* Selected Recipe Details & Craft Button */}
             {selectedRecipe && (
-              <div className="pixel-box-wood p-3 flex flex-col gap-2">
-                <div className="flex items-center justify-between border-b-2 border-[#160e09] pb-2">
-                  <div className="text-[10px] text-[#fde047] uppercase">{selectedRecipe.name}</div>
-                  <div className="text-[8px] text-[#86efac]">
-                    YIELDS x{selectedRecipe.result.count}
-                  </div>
+              <section className="well flex flex-col gap-3 p-3">
+                <div className="flex items-center justify-between gap-2 border-b border-[var(--line-soft)] pb-2">
+                  <span className="text-[12px] font-bold">{selectedRecipe.name}</span>
+                  <span className="chip">x{selectedRecipe.result.count}</span>
                 </div>
+                <p className="body-sm">{selectedRecipe.result.description}</p>
 
-                <div className="text-[8px] text-[#c49a6c]">
-                  {selectedRecipe.result.description}
-                </div>
-
-                {/* Ingredients Breakdown */}
-                <div className="flex flex-col gap-1 my-1">
-                  <span className="text-[8px] text-[#e5e7eb] uppercase">REQUIRED MATERIALS:</span>
+                <div className="flex flex-col gap-1.5">
+                  <span className="label">Materials</span>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedRecipe.ingredients.map(ing => {
                       const userHas = inventory.find(it => it.id === ing.itemId)?.count || 0;
                       const hasEnough = userHas >= ing.count;
-
                       return (
-                        <div
+                        <span
                           key={ing.itemId}
-                          className={`px-2 py-1 text-[8px] border-2 flex items-center gap-1 ${
-                            hasEnough
-                              ? 'bg-[#14532d] border-[#22c55e] text-[#86efac]'
-                              : 'bg-[#450a0a] border-[#ef4444] text-[#fca5a5]'
-                          }`}
+                          className="chip"
+                          style={{
+                            color: hasEnough ? 'var(--leaf)' : 'var(--blood)',
+                            borderColor: hasEnough ? 'rgba(122,199,79,0.4)' : 'rgba(224,87,74,0.4)'
+                          }}
                         >
-                          <span className="capitalize">{ing.itemId.replace('_', ' ')}:</span>
-                          <span className="font-bold">
-                            {userHas}/{ing.count}
-                          </span>
-                        </div>
+                          {ing.itemId.replace(/_/g, ' ')} <b className="num-pixel">{userHas}/{ing.count}</b>
+                        </span>
                       );
                     })}
                   </div>
                 </div>
 
-                {/* Craft Button */}
                 <button
+                  type="button"
                   onClick={() => handleCraft(selectedRecipe)}
                   disabled={!canCraft(selectedRecipe, inventory, isAtBench)}
-                  className={`w-full py-2.5 px-4 text-[10px] uppercase font-bold flex items-center justify-center gap-2 ${
-                    canCraft(selectedRecipe, inventory, isAtBench)
-                      ? 'pixel-btn-gold text-[#1c1305]'
-                      : 'pixel-btn-stone opacity-50 cursor-not-allowed text-[#9ca3af]'
-                  }`}
+                  className={`btn btn-block ${canCraft(selectedRecipe, inventory, isAtBench) ? 'btn-primary' : 'btn-quiet'}`}
                 >
-                  <Hammer className="w-4 h-4" />
-                  <span>CRAFT ITEM</span>
+                  <Hammer size={15} />
+                  Craft item
                 </button>
-              </div>
+              </section>
             )}
           </div>
         </div>

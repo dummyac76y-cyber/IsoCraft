@@ -5,10 +5,11 @@ import { CharacterModel } from '../engine/character';
 import { MobManager } from '../engine/mobs';
 import { sound } from '../engine/sound';
 import { BlockType, CharacterCustomization, Item, RaycastHit, GameMode, PlayerStats, MobEntity } from '../types';
-import { generateCrackTexture } from '../engine/textures';
+import { generateCrackTexture } from '../engine/overlays';
 import { calculatePath, findAdjacentWalkableSpot, findGroundHeight, PathPoint } from '../engine/pathfinding';
 import { KenneyDecorationManager } from '../engine/kenneyDecorations';
-import { ArenaTerrainTiles } from '../engine/arenaTiles';
+import { clearTouchEdges, TouchInputState } from '../engine/input';
+import { AABB, isFreeAt, moveEntity } from '../engine/collision';
 
 interface GameCanvasProps {
   customization: CharacterCustomization;
@@ -38,6 +39,8 @@ interface GameCanvasProps {
   onZoom?: (delta: number) => void;
   touchShiftMode?: boolean;
   playerPosRef?: React.MutableRefObject<{ x: number; y: number; z: number; facingAngle: number }>;
+  /** Shared touch bus written by the on-screen joystick and action buttons. */
+  touchInput: TouchInputState;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
@@ -67,7 +70,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   blockOpacity = 0.85,
   onZoom,
   touchShiftMode = false,
-  playerPosRef
+  playerPosRef,
+  touchInput
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -173,52 +177,34 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const mobManager = new MobManager();
     scene.add(mobManager.group);
 
-    // Spawn starting mobs around spawn
-    mobManager.spawnMob('villager', safeSpawn.x + 3, safeSpawn.y, safeSpawn.z - 3);
-    mobManager.spawnMob('villager', safeSpawn.x + 4, safeSpawn.y, safeSpawn.z + 3);
-    mobManager.spawnMob('villager', safeSpawn.x - 5, safeSpawn.y, safeSpawn.z - 4);
-    mobManager.spawnMob('skeleton', safeSpawn.x + 8, safeSpawn.y, safeSpawn.z + 9);
-    mobManager.spawnMob('goblin', safeSpawn.x - 9, safeSpawn.y, safeSpawn.z + 7);
-    mobManager.spawnMob('skeleton', safeSpawn.x + 14, safeSpawn.y, safeSpawn.z + 14);
-    mobManager.spawnMob('goblin', safeSpawn.x - 12, safeSpawn.y, safeSpawn.z - 8);
-    // Extra villagers so the Kenney Mini Characters pack shows real variety
-    mobManager.spawnMob('villager', safeSpawn.x - 4, safeSpawn.y, safeSpawn.z + 5);
-    mobManager.spawnMob('villager', safeSpawn.x + 7, safeSpawn.y, safeSpawn.z + 2);
+    // Opening cast: a trader pair by the camp and a first hostile ring, all
+    // placed on real ground so none of them spawn inside a hillside.
+    const spawnMobOnGround = (type: 'villager' | 'skeleton' | 'goblin', dx: number, dz: number) => {
+      const x = Math.floor(safeSpawn.x + dx);
+      const z = Math.floor(safeSpawn.z + dz);
+      const gy = findGroundHeight(world, x, z, safeSpawn.y + 4);
+      if (gy === null) return;
+      mobManager.spawnMob(type, x + 0.5, gy, z + 0.5);
+    };
+    spawnMobOnGround('villager', 3, -3);
+    spawnMobOnGround('villager', 4, 3);
+    spawnMobOnGround('villager', -5, -4);
+    spawnMobOnGround('villager', -4, 5);
+    spawnMobOnGround('villager', 7, 2);
+    spawnMobOnGround('skeleton', 9, 10);
+    spawnMobOnGround('goblin', -10, 8);
+    spawnMobOnGround('skeleton', 15, 15);
+    spawnMobOnGround('goblin', -13, -9);
 
     // --- Kenney "Mini Forest" Prop Layer (GLB assets scattered on terrain) ---
     const decorations = new KenneyDecorationManager(1234);
+    decorations.bindWorld(world);
     scene.add(decorations.group);
     decorations.placeCamp(safeSpawn.x, safeSpawn.y, safeSpawn.z, world);
 
-    // --- Kenney "Mini Arena" terrain tile layer (GLB tiles capping the voxel terrain) ---
-    const arenaTiles = new ArenaTerrainTiles(1234);
-    scene.add(arenaTiles.group);
-    arenaTiles.placeArena(safeSpawn.x, safeSpawn.y, safeSpawn.z, world);
+    // --- Kenney "Mini Arena" plaza: real arena pieces staged next to the camp ---
+    decorations.placeArenaPlaza(safeSpawn.x, safeSpawn.z, world);
 
-    // Dynamic Mob Spawner across Infinite Terrain
-    let lastMobSpawnTime = 0;
-    const updateInfiniteMobSpawning = (time: number) => {
-      if (time - lastMobSpawnTime > 7000 && mobManager.mobs.length < 12) {
-        lastMobSpawnTime = time;
-        const angle = Math.random() * Math.PI * 2;
-        const dist = 16 + Math.random() * 20;
-        const mx = Math.floor(playerPos.x + Math.sin(angle) * dist);
-        const mz = Math.floor(playerPos.z + Math.cos(angle) * dist);
-        const groundY = findGroundHeight(world, mx, mz, playerPos.y);
-
-        if (groundY !== null && groundY > 6) {
-          const isNight = dayTimeRef.current < 0.25 || dayTimeRef.current > 0.75;
-          if (isNight) {
-            const hostile = Math.random() < 0.5 ? 'skeleton' : 'goblin';
-            mobManager.spawnMob(hostile, mx + 0.5, groundY, mz + 0.5);
-          } else {
-            // Daytime wanderers are Kenney villager NPCs (every mob in the
-            // game now uses the Kenney Mini Characters pack)
-            mobManager.spawnMob('villager', mx + 0.5, groundY, mz + 0.5);
-          }
-        }
-      }
-    };
 
     // --- Lighting Setup ---
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.48);
@@ -659,16 +645,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           clickedMob.vz = (kz / kLen) * 3.4;
           clickedMob.vy = 2.5;
 
-          const { dead } = mobManager.hitMob(clickedMob.id, toolDmg);
-          addFloatingText(`-${toolDmg}`, clickedMob.x, clickedMob.y + 1.2, clickedMob.z, '#ff4444');
+          const { dead, mob } = mobManager.hitMob(clickedMob.id, toolDmg, playerPos.x, playerPos.z);
+          addFloatingText(`-${toolDmg}`, clickedMob.x, clickedMob.y + 1.4, clickedMob.z, '#ff6b6b');
 
-          if (dead) {
+          if (dead && mob) {
             sound.playLevelUp();
-            addFloatingText('+25 XP', clickedMob.x, clickedMob.y + 1.5, clickedMob.z, '#ffdd44');
+            const reward = mobManager.xpFor(mob);
+            addFloatingText(`+${reward} XP`, clickedMob.x, clickedMob.y + 1.8, clickedMob.z, '#ffd76a');
             setPlayerStats(prev => ({
               ...prev,
-              xp: prev.xp + 25,
-              level: Math.floor((prev.xp + 25) / 100) + 1,
+              xp: prev.xp + reward,
+              level: Math.floor((prev.xp + reward) / 100) + 1,
               monstersDefeated: prev.monstersDefeated + 1
             }));
           }
@@ -678,14 +665,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           character.triggerInteract();
           targetFacingAngle = Math.atan2(clickedMob.x - playerPos.x, clickedMob.z - playerPos.z);
           sound.playItemCollect();
-          const quotes = [
-            "Welcome to the infinite voxel realm!",
-            "Explore mountains, rivers, and ancient ruins!",
-            "Press Shift + Click to automatically navigate!",
-            "A sharp sword keeps nighttime creatures away!",
-            "Press C to change your character's outfit!"
-          ];
-          addFloatingText(quotes[Math.floor(Math.random() * quotes.length)], clickedMob.x, clickedMob.y + 1.6, clickedMob.z, '#4ade80');
+          addFloatingText(mobManager.smallTalk(), clickedMob.x, clickedMob.y + 1.9, clickedMob.z, '#7dd3fc');
           return;
         }
       }
@@ -729,6 +709,53 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           character.triggerMine();
           miningBlockCoords = { x: currentHit.blockX, y: currentHit.blockY, z: currentHit.blockZ };
           miningProgress = 0;
+        }
+      }
+    };
+
+    /**
+     * INTERACT at the current aim: opens a chest or crafting bench within reach,
+     * and otherwise swings at a mob. Bound to the touch INTERACT button.
+     */
+    const handleInteractAtAim = () => {
+      raycaster.setFromCamera(mouseNDC, camera);
+
+      if (currentHit) {
+        const reach = playerPos.distanceTo(
+          new THREE.Vector3(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5)
+        );
+        if (reach <= 3.6) {
+          const key = `${currentHit.blockX},${currentHit.blockY},${currentHit.blockZ}`;
+          if (currentHit.blockType === BlockType.CHEST) {
+            character.triggerInteract();
+            onOpenChest?.(key, world.chestContents.get(key) || []);
+            return;
+          }
+          if (currentHit.blockType === BlockType.CRAFTING_BENCH) {
+            character.triggerInteract();
+            onOpenCrafting?.(true);
+            return;
+          }
+        }
+      }
+
+      const hits = raycaster.intersectObjects(mobManager.group.children, true);
+      for (const hit of hits) {
+        let node: THREE.Object3D | null = hit.object;
+        while (node && node !== mobManager.group) {
+          const mob = node.userData?.mob as MobEntity | undefined;
+          if (mob) {
+            if (playerPos.distanceTo(new THREE.Vector3(mob.x, mob.y, mob.z)) <= 3.4) {
+              character.triggerAttack();
+              targetFacingAngle = Math.atan2(mob.x - playerPos.x, mob.z - playerPos.z);
+              const damage = activeItemRef.current?.damage || 2;
+              const { dead } = mobManager.hitMob(mob.id, damage, playerPos.x, playerPos.z);
+              addFloatingText(`-${damage}`, mob.x, mob.y + 1.4, mob.z, '#ff6b6b');
+              if (dead) sound.playLevelUp();
+            }
+            return;
+          }
+          node = node.parent;
         }
       }
     };
@@ -828,6 +855,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let lastProcessedRespawn = respawnCountRef.current;
 
     let shadowFrame = 0;
+    let frameCounter = 0;
     let lightSortFrame = 0;
     let lastLightSourceCount = -1;
     let nearestLightsCache: Array<{ ls: (typeof world.lightSources)[number]; distSq: number }> | null = null;
@@ -865,13 +893,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Update Infinite Terrain Streaming and Dynamic Occlusion
       world.update(playerPos.x, playerPos.z, playerPos.y, cameraAngleRef.current, blockOpacityRef.current);
-      updateInfiniteMobSpawning(time);
 
-      // Scatter Kenney Mini Forest props across freshly streamed chunks
+      // Scatter biome-aware Kenney props across freshly streamed chunks and
+      // drop colliders for chunks that streamed out
       decorations.update(playerPos.x, playerPos.z, world, time);
+      if (frameCounter % 180 === 0) decorations.pruneColliders(world);
 
-      // Cap freshly streamed / modified terrain with Kenney arena tiles
-      arenaTiles.update(playerPos.x, playerPos.z, world, time);
+      // Day/night spawn director with population caps
+      const isNightNow = dayTimeRef.current < 0.27 || dayTimeRef.current > 0.73;
+      mobManager.spawnDirector(playerPos, world, isNightNow, delta);
 
       // Update Zoom & Frustum
       const desiredFrustum = zoomLevelRef.current;
@@ -891,30 +921,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         playerVel.z = 0;
       }
 
-      // Collision helper
-      const playerRadius = 0.28;
-      const playerHeight = 1.35;
-      const collidesAt = (px: number, py: number, pz: number): boolean => {
-        const minX = Math.floor(px - playerRadius);
-        const maxX = Math.floor(px + playerRadius);
-        const minY = Math.floor(py + 0.05);
-        const maxY = Math.floor(py + playerHeight - 0.05);
-        const minZ = Math.floor(pz - playerRadius);
-        const maxZ = Math.floor(pz + playerRadius);
+      // Player collision now runs on the shared AABB system: the box is tested
+      // against every per-block collider (slabs, posts, plants, prop trunks) and
+      // against the Kenney prop colliders published by the decoration layer.
+      const PLAYER_RADIUS = 0.28;
+      const PLAYER_HEIGHT = 1.7;
+      const playerBox: AABB = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+      const collidesAt = (px: number, py: number, pz: number): boolean =>
+        !isFreeAt(world, px, py, pz, PLAYER_RADIUS, PLAYER_HEIGHT);
 
-        for (let y = minY; y <= maxY; y++) {
-          for (let z = minZ; z <= maxZ; z++) {
-            for (let x = minX; x <= maxX; x++) {
-              if (world.isSolid(x, y, z)) {
-                return true;
-              }
-            }
-          }
-        }
-        return false;
-      };
-
-      // 2. Player Movement Input
+      // 2. Player Movement Input (keyboard + virtual stick share one vector)
       let moveX = 0;
       let moveZ = 0;
 
@@ -923,6 +939,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (keys['KeyS'] || keys['ArrowDown']) moveZ += 1;
         if (keys['KeyA'] || keys['ArrowLeft']) moveX -= 1;
         if (keys['KeyD'] || keys['ArrowRight']) moveX += 1;
+
+        if (touchInput.moveActive) {
+          moveX += touchInput.moveX;
+          moveZ += touchInput.moveZ;
+        }
+      }
+
+      // Keep the combined vector on the unit circle so keyboard + stick never
+      // stack into a diagonal speed boost
+      const inputLength = Math.hypot(moveX, moveZ);
+      if (inputLength > 1) {
+        moveX /= inputLength;
+        moveZ /= inputLength;
       }
 
       const isManualMoving = moveX !== 0 || moveZ !== 0;
@@ -958,12 +987,12 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       const isMoving = isManualMoving || isPathMoving;
-      const isRunning = (keys['ShiftLeft'] || keys['ShiftRight']) && isManualMoving;
+      const isRunning = (keys['ShiftLeft'] || keys['ShiftRight'] || touchInput.sprint) && isManualMoving;
       const moveSpeed = isRunning ? 7.2 : 4.5;
 
       // Grounding & Water check
       const feetY = playerPos.y;
-      const isGrounded = collidesAt(playerPos.x, feetY - 0.08, playerPos.z);
+      let isGrounded = collidesAt(playerPos.x, feetY - 0.1, playerPos.z);
       const isInWater = world.getBlock(Math.floor(playerPos.x), Math.floor(playerPos.y + 0.3), Math.floor(playerPos.z)) === BlockType.WATER;
 
       // Velocity calculation
@@ -994,7 +1023,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       // Jump & Gravity
-      if (!isDeadRef.current && !isModalOpenRef.current && keys['Space']) {
+      if (!isDeadRef.current && !isModalOpenRef.current && (keys['Space'] || touchInput.jump)) {
         if (isGrounded) {
           playerVel.y = 7.5;
           sound.playJump();
@@ -1010,65 +1039,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         playerVel.y -= 22.0 * delta;
       }
 
-      // Vertical integration
-      const nextY = playerPos.y + playerVel.y * delta;
-      if (playerVel.y < 0) {
-        if (collidesAt(playerPos.x, nextY, playerPos.z)) {
-          playerVel.y = 0;
-          playerPos.y = Math.floor(playerPos.y);
-        } else {
-          playerPos.y = nextY;
-        }
-      } else {
-        if (collidesAt(playerPos.x, nextY, playerPos.z)) {
-          playerVel.y = 0;
-        } else {
-          playerPos.y = nextY;
-        }
-      }
+      // Ground probe uses the real box so slabs and prop trunks count as ground
+      const grounded = collidesAt(playerPos.x, playerPos.y - 0.1, playerPos.z);
+      const wasGrounded = isGrounded;
+      isGrounded = grounded;
 
-      // Horizontal integration with auto step-up
-      if (!isDeadRef.current) {
-        const dx = playerVel.x * delta;
-        if (Math.abs(dx) > 0.0001) {
-          const targetX = playerPos.x + dx;
-          if (!collidesAt(targetX, playerPos.y, playerPos.z)) {
-            playerPos.x = targetX;
-          } else {
-            const stepUpY = Math.floor(playerPos.y) + 1.0;
-            if (stepUpY - playerPos.y <= 1.05 && (isGrounded || isInWater)) {
-              if (!collidesAt(targetX, stepUpY, playerPos.z)) {
-                playerPos.y = stepUpY;
-                playerPos.x = targetX;
-              } else {
-                playerVel.x = 0;
-              }
-            } else {
-              playerVel.x = 0;
-            }
-          }
-        }
+      const horizontalAllowed = !isDeadRef.current && (wasGrounded || isInWater);
+      const move = moveEntity(
+        world,
+        playerPos,
+        PLAYER_RADIUS,
+        PLAYER_HEIGHT,
+        playerVel.x * delta,
+        playerVel.y * delta,
+        playerVel.z * delta,
+        horizontalAllowed
+      );
 
-        const dz = playerVel.z * delta;
-        if (Math.abs(dz) > 0.0001) {
-          const targetZ = playerPos.z + dz;
-          if (!collidesAt(playerPos.x, playerPos.y, targetZ)) {
-            playerPos.z = targetZ;
-          } else {
-            const stepUpY = Math.floor(playerPos.y) + 1.0;
-            if (stepUpY - playerPos.y <= 1.05 && (isGrounded || isInWater)) {
-              if (!collidesAt(playerPos.x, stepUpY, targetZ)) {
-                playerPos.y = stepUpY;
-                playerPos.z = targetZ;
-              } else {
-                playerVel.z = 0;
-              }
-            } else {
-              playerVel.z = 0;
-            }
-          }
-        }
+      if (move.hitY) {
+        if (playerVel.y < 0) playerPos.y = Math.floor(playerPos.y) + 0.001;
+        playerVel.y = 0;
       }
+      if (move.hitX) playerVel.x = 0;
+      if (move.hitZ) playerVel.z = 0;
 
       // Failsafe if player falls below world
       if (playerPos.y < 0) {
@@ -1284,7 +1277,26 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // Raycast for hover & continuous mining (skipped until the mouse has
+      // ---- Touch action buttons (mobile) --------------------------------
+      if (touchInput.zoomIn) onZoom?.(-3);
+      if (touchInput.zoomOut) onZoom?.(3);
+      if (touchInput.rotateLeft) onRotateCamera(-1);
+      if (touchInput.rotateRight) onRotateCamera(1);
+      if (touchInput.resetCamera) onResetCamera?.();
+
+      // A tap on the world aims the same raycast the mouse uses, so the virtual
+      // pad plays through the exact same mining / placing / pathing code.
+      if (touchInput.aimActive) {
+        const rect = container.getBoundingClientRect();
+        mouseNDC.x = ((touchInput.aimX - rect.left) / rect.width) * 2 - 1;
+        mouseNDC.y = -((touchInput.aimY - rect.top) / rect.height) * 2 + 1;
+      }
+
+      if (touchInput.pathfind) handleShiftClickPathfind();
+      if (touchInput.interact) handleInteractAtAim();
+      if (touchInput.place) handleRightClickAction();
+
+      // Raycast for hover & continuous mining (skipped until the pointer has
       // actually moved over the canvas)
       if (mouseNDC.x > -2) {
         raycaster.setFromCamera(mouseNDC, camera);
@@ -1322,7 +1334,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
 
           // Survival Mining while holding Left Mouse Button
-          if (isMouseDown && mouseButton === 0 && gameModeRef.current === 'survival') {
+          const miningHeld = (isMouseDown && mouseButton === 0) || touchInput.mining;
+          if (miningHeld && gameModeRef.current === 'survival') {
             const bx = currentHit.blockX;
             const by = currentHit.blockY;
             const bz = currentHit.blockZ;
@@ -1463,8 +1476,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Throttled shadow refresh: re-render the shadow maps every ~5 frames
       // instead of every frame (dynamic sun + mobs still update ~12x/sec).
+      clearTouchEdges(touchInput);
+
       shadowFrame = (shadowFrame + 1) % 5;
       if (shadowFrame === 0) renderer.shadowMap.needsUpdate = true;
+      frameCounter++;
 
       renderer.render(scene, camera);
     };
@@ -1483,8 +1499,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       canvasElem.removeEventListener('wheel', handleWheel);
       canvasElem.removeEventListener('contextmenu', handleContextMenu);
       characterRef.current = null;
-      arenaTiles.dispose();
       decorations.dispose();
+      world.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Map, RefreshCw, Mountain, Trees, Compass } from 'lucide-react';
+import { X, Map, RefreshCw, Mountain, Trees, Compass, Home } from 'lucide-react';
 import { VoxelWorld } from '../engine/world';
 import { sound } from '../engine/sound';
+import { TerrainPreset } from '../engine/terrain';
 
 interface WorldModalProps {
   isOpen: boolean;
@@ -18,24 +19,30 @@ const sanitizeSeed = (inputVal: string): number => {
   return Math.max(1, Math.min(999999, Math.floor(Math.abs(parsed))));
 };
 
-const PRESETS = [
+const PRESETS: Array<{ id: TerrainPreset; name: string; description: string; icon: typeof Trees }> = [
   {
-    id: 'meadow' as const,
-    name: 'EMERALD MEADOW & RIVER',
-    description: 'Infinite rolling green hills, winding river networks, oak & pine forests, ancient ruins and farmland.',
+    id: 'meadow',
+    name: 'Emerald meadows & rivers',
+    description: 'Rolling green hills cut by winding rivers, with oak groves, ancient ruins and open farmland.',
     icon: Trees
   },
   {
-    id: 'mountain' as const,
-    name: 'SNOWY PEAKS & HIGHLANDS',
-    description: 'Towering mountain ranges with snowy summits, pine groves, deep cavern shafts and rich ruby ore veins.',
+    id: 'canyon',
+    name: 'Sunken stone gorge',
+    description: 'A carved river canyon between sheer cliffs, with exposed coal seams, gold veins and deep chambers.',
+    icon: Compass
+  },
+  {
+    id: 'mountain',
+    name: 'Snowy peaks & highlands',
+    description: 'Towering ranges with snow-capped summits, pine groves, cavern shafts and rich ruby deposits.',
     icon: Mountain
   },
   {
-    id: 'canyon' as const,
-    name: 'SUNKEN STONE GORGE',
-    description: 'Deep river canyon flanked by sheer cliffs, exposed coal, gold deposits, and underground chambers.',
-    icon: Compass
+    id: 'village',
+    name: 'Established frontier village',
+    description: 'Calmer lowlands dotted with more camps, shrines and outposts. The friendliest place to start a run.',
+    icon: Home
   }
 ];
 
@@ -45,8 +52,8 @@ export const WorldModal: React.FC<WorldModalProps> = ({
   worldRef,
   onWorldRegenerated
 }) => {
-  const [selectedPreset, setSelectedPreset] = useState<'meadow' | 'mountain' | 'canyon'>('meadow');
-  const [seed, setSeed] = useState<number>(() => Math.floor(Math.random() * 99999) + 1);
+  const [selectedPreset, setSelectedPreset] = useState<TerrainPreset>('meadow');
+  const [seed, setSeed] = useState<number>(() => Math.floor(Math.random() * 999999) + 1);
 
   if (!isOpen) return null;
 
@@ -63,102 +70,76 @@ export const WorldModal: React.FC<WorldModalProps> = ({
     sound.playStep('stone');
   };
 
+  const active = PRESETS.find(p => p.id === selectedPreset) ?? PRESETS[0];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 font-pixel select-none">
-      <div className="relative w-full max-w-2xl pixel-box-wood flex flex-col max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 bg-[#24170e] border-b-4 border-[#160e09]">
-          <div className="flex items-center gap-3">
-            <div className="p-2 pixel-box-slot text-[#fbbf24]">
-              <Map className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-xs sm:text-sm text-[#f5eedc] uppercase">INFINITE REALM GENERATOR</h2>
-              <p className="text-[8px] text-[#c49a6c]">PROCEDURAL CHUNK SEED & BIOME PRESETS</p>
+    <div className="modal-scrim" onContextMenu={e => e.preventDefault()}>
+      <div className="panel modal max-w-xl" role="dialog" aria-modal="true" aria-label="World generator">
+        <div className="modal-header">
+          <div className="modal-heading">
+            <div className="modal-icon" aria-hidden><Map size={17} /></div>
+            <div className="min-w-0">
+              <h2 className="modal-title">World generator</h2>
+              <p className="modal-sub">Terrain streams in as you walk</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="pixel-btn-danger p-1.5"
-            title="Close"
-          >
-            <X className="w-4 h-4 text-[#fef2f2]" />
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
+            <X size={16} />
           </button>
         </div>
 
-        {/* Body Content */}
-        <div className="p-5 flex flex-col gap-4 overflow-y-auto text-[#e5e7eb]">
-          {/* Biome Presets */}
-          <div className="pixel-box-stone p-3">
-            <label className="text-[9px] text-[#fde047] block mb-2 uppercase">BIOME LANDSCAPE PRESET</label>
-            <div className="flex flex-col gap-2">
-              {PRESETS.map(p => {
-                const Icon = p.icon;
-                const isSelected = selectedPreset === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => setSelectedPreset(p.id)}
-                    className={`p-3 text-left border-2 flex items-start gap-3 transition ${
-                      isSelected
-                        ? 'bg-[#4a3422] border-[#facc15] text-[#fef08a]'
-                        : 'pixel-btn-stone'
-                    }`}
-                  >
-                    <Icon className="w-5 h-5 shrink-0 text-[#fde047] mt-0.5" />
-                    <div>
-                      <div className="text-[9px] uppercase font-bold">{p.name}</div>
-                      <div className="text-[8px] text-[#c49a6c] mt-1 normal-case leading-relaxed">
-                        {p.description}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        <div className="modal-body">
+          <section className="flex flex-col gap-2">
+            <span className="label">Landscape preset</span>
+            {PRESETS.map(p => {
+              const Icon = p.icon;
+              const isSelected = selectedPreset === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setSelectedPreset(p.id)}
+                  className={`option-card ${isSelected ? 'is-selected' : ''}`}
+                >
+                  <Icon size={17} className="mt-0.5 shrink-0 text-[var(--gold)]" />
+                  <span className="min-w-0">
+                    <span className="option-title">{p.name}</span>
+                    <span className="option-desc">{p.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </section>
 
-          {/* Seed Input */}
-          <div className="pixel-box-stone p-3">
-            <label className="text-[9px] text-[#fde047] block mb-2 uppercase">INFINITE WORLD SEED</label>
+          <section className="well flex flex-col gap-2 p-3">
+            <span className="label">World seed</span>
             <div className="flex gap-2">
               <input
                 type="number"
+                className="field flex-1"
                 value={seed}
                 min={1}
                 max={999999}
                 onChange={e => setSeed(sanitizeSeed(e.target.value))}
-                className="pixel-box-slot flex-1 px-3 py-2 text-[10px] text-[#f5eedc] font-mono outline-none"
+                aria-label="World seed"
               />
-              <button
-                onClick={handleRandomSeed}
-                className="pixel-btn-stone px-3 py-2 text-[9px] flex items-center gap-1.5"
-                title="Generate Random Seed"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-[#fbbf24]" />
-                <span>RANDOM</span>
+              <button type="button" className="btn btn-quiet" onClick={handleRandomSeed}>
+                <RefreshCw size={14} />
+                Random
               </button>
             </div>
-            <p className="text-[8px] text-[#9ca3af] mt-2 leading-relaxed">
-              Every unique seed creates an infinite procedural universe with endless mountains, valleys, rivers, and dungeons.
+            <p className="body-sm">
+              Every seed builds a different endless landscape of ridges, rivers, ore seams and caves.
+              Regenerating replaces your current run.
             </p>
-          </div>
+          </section>
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-3 bg-[#24170e] border-t-4 border-[#160e09] flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="pixel-btn-stone py-2 px-4 text-[9px] uppercase"
-          >
-            CANCEL
-          </button>
-          <button
-            onClick={handleGenerate}
-            className="pixel-btn-gold py-2 px-6 text-[10px] uppercase font-bold flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            <span>FORGE INFINITE REALM</span>
+        <div className="modal-footer">
+          <button type="button" className="btn btn-quiet" onClick={onClose}>Cancel</button>
+          <button type="button" className="btn btn-primary" onClick={handleGenerate}>
+            <RefreshCw size={15} />
+            Generate {active.name.split(' ')[0].toLowerCase()}
           </button>
         </div>
       </div>

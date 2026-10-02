@@ -75,119 +75,107 @@ export const GameMenu: React.FC<GameMenuProps> = ({
   const zoomPercent = Math.round((20 / zoomLevel) * 100);
   const visionPercent = Math.round(visionOpacity * 100);
 
-  const renderItem = (
+  const row = (
     icon: React.ReactNode,
     label: string,
     onClick: (() => void) | null,
     rightText?: string,
-    active = false
+    on = false
   ) => (
     <button
-      onClick={onClick ? () => onClick() : undefined}
+      type="button"
+      onClick={onClick ?? undefined}
       disabled={onClick === null}
-      className={`w-full flex items-center justify-between px-2 py-1.5 text-[8px] uppercase transition border-b border-[#160e09]/30 ${
-        active
-          ? 'bg-[#3b2a1a] border-l-3 border-[#fde047] text-[#fde047] font-bold'
-          : onClick === null
-            ? 'text-[#e5e7eb] cursor-default'
-            : 'text-[#e5e7eb] hover:bg-[#2e2218]'
-      }`}
+      className="menu-row"
     >
-      <div className="flex items-center gap-2">
-        {icon}
-        <span>{label}</span>
-      </div>
-      {rightText && <span className="text-[#fbbf24]">{rightText}</span>}
+      <span className="flex items-center gap-2">{icon}{label}</span>
+      <span className={`menu-meta ${on ? 'is-on' : ''}`}>{rightText ?? ''}</span>
     </button>
   );
 
+  const group = (label: string, children: React.ReactNode) => (
+    <div className="flex flex-col gap-0.5 px-1 py-2">
+      <span className="eyebrow px-2 pb-1">{label}</span>
+      {children}
+    </div>
+  );
+
   return (
-    <div className="fixed top-3 left-3 z-20 pointer-events-auto font-pixel" ref={menuRef}>
-      {/* Compact Menu Button */}
+    <div className="pointer-events-auto absolute left-3 top-3 z-20 sm:left-5 sm:top-5" ref={menuRef}>
       {!isOpen && (
         <button
+          type="button"
           onClick={() => setIsOpen(true)}
-          className="pixel-btn-stone px-2 py-1.5 flex items-center gap-2 text-[8px] uppercase"
-          title="Game Menu"
+          className="btn btn-quiet"
+          aria-label="Open game menu"
         >
-          <Menu className="w-4 h-4 text-[#e5e7eb]" />
-          <span>MENU</span>
+          <Menu size={15} />
+          Menu
         </button>
       )}
 
-      {/* Single Unified Panel */}
       {isOpen && (
-        <div className="w-56 pixel-box-stone flex flex-col">
-          {/* Header */}
-          <div className="flex items-center justify-between px-2 py-1.5 bg-[#24170e] border-b-3 border-[#160e09]">
-            <span className="text-[9px] text-[#c49a6c] uppercase">GAME MENU</span>
+        <div className="panel w-[min(264px,calc(100vw-24px))] p-1.5">
+          <div className="flex items-center justify-between px-2 py-2">
+            <span className="eyebrow">Game menu</span>
             <button
+              type="button"
               onClick={() => setIsOpen(false)}
-              className="pixel-btn-danger p-0.5"
-              title="Close Menu"
+              className="icon-button"
+              style={{ width: 26, height: 26 }}
+              aria-label="Close menu"
             >
-              <X className="w-3 h-3 text-[#fef2f2]" />
+              <X size={13} />
             </button>
           </div>
+          <div className="divider" />
 
-          {/* Navigation & Movement */}
-          <div className="border-b-2 border-[#160e09]/50">
-            {renderItem(<Map className="w-3.5 h-3.5 text-[#93c5fd]" />, 'Map', onOpenMap)}
-            {renderItem(<Undo className="w-3.5 h-3.5 text-[#fbbf24]" />, 'Undo / Back', onUndo)}
-            {renderItem(<Redo className="w-3.5 h-3.5 text-[#fbbf24]" />, 'Redo / Forward', onRedo)}
-            {renderItem(<Compass className="w-3.5 h-3.5 text-[#fde047]" />, 'Compass / Navigation', onCompass)}
-          </div>
+          {group('Navigate', <>
+            {row(<Map size={15} className="text-[var(--sky)]" />, 'World map', onOpenMap)}
+            {row(<Undo size={15} className="text-[var(--gold)]" />, 'Undo last edit', onUndo)}
+            {row(<Redo size={15} className="text-[var(--gold)]" />, 'Redo edit', onRedo)}
+            {row(<Compass size={15} className="text-[var(--gold)]" />, 'Bearing / coordinates', onCompass)}
+          </>)}
 
-          {/* Camera Controls */}
-          <div className="border-b-2 border-[#160e09]/50">
-            {renderItem(<RotateCcw className="w-3.5 h-3.5 text-[#93c5fd]" />, 'Rotate Left (Q)', onRotateCameraLeft)}
-            {renderItem(<RotateCw className="w-3.5 h-3.5 text-[#93c5fd]" />, 'Rotate Right (E)', onRotateCameraRight)}
-            {renderItem(<RotateCw className="w-3.5 h-3.5 text-[#fbbf24]" />, 'Reset Camera (R)', onResetCamera)}
-            {renderItem(
-              <RefreshCw className={`w-3.5 h-3.5 ${autoRotateCamera ? 'text-[#22d3ee] animate-spin' : 'text-[#9ca3af]'}`} />,
-              'Auto-Rotate Camera',
-              onToggleAutoRotate,
-              autoRotateCamera ? 'ON' : 'OFF',
-              autoRotateCamera
-            )}
-            {renderItem(
-              <RefreshCw className={`w-3 h-3 ${autoRotateCamera ? 'text-[#22d3ee]' : 'text-[#9ca3af]'}`} />,
-              `Auto-Rotate Speed: ${autoRotateSpeed.toUpperCase()}`,
-              onCycleAutoRotateSpeed
-            )}
-            {renderItem(
-              <Eye className="w-3.5 h-3.5 text-[#38bdf8]" />,
-              'Vision Cutaway',
-              onCycleVision,
-              `${visionPercent}%`
-            )}
-          </div>
+          <div className="divider" />
 
-          {/* Zoom Controls */}
-          <div className="border-b-2 border-[#160e09]/50">
-            {renderItem(<ZoomIn className="w-3.5 h-3.5 text-[#86efac]" />, 'Zoom In (+)', onZoomIn)}
-            {renderItem(null, 'Zoom Level', null, `${zoomPercent}%`, true)}
-            {renderItem(<ZoomOut className="w-3.5 h-3.5 text-[#fca5a5]" />, 'Zoom Out (-)', onZoomOut)}
-          </div>
+          {group('Camera', <>
+            {row(<RotateCcw size={15} className="text-[var(--sky)]" />, 'Rotate left (Q)', onRotateCameraLeft)}
+            {row(<RotateCw size={15} className="text-[var(--sky)]" />, 'Rotate right (E)', onRotateCameraRight)}
+            {row(<RefreshCw size={15} className={autoRotateCamera ? 'text-[var(--leaf)]' : ''} />, 'Auto-rotate', onToggleAutoRotate, autoRotateCamera ? 'ON' : 'OFF', autoRotateCamera)}
+            {row(<RefreshCw size={15} />, 'Auto-rotate speed', onCycleAutoRotateSpeed, autoRotateSpeed.toUpperCase(), autoRotateCamera)}
+            {row(<Eye size={15} className="text-[var(--sky)]" />, 'Cutaway opacity', onCycleVision, `${visionPercent}%`)}
+          </>)}
 
-          {/* Game Mode & Audio */}
-          <div>
-            {renderItem(
-              <div className={`w-3.5 h-3.5 rounded-full ${gameMode === 'creative' ? 'bg-[#c98a1a]' : 'bg-[#276f2f]'} border-2 border-[#160e09]`} />,
-              gameMode === 'creative' ? 'Creative Mode' : 'Survival Mode',
-              onToggleGameMode
+          <div className="divider" />
+
+          {group('Zoom', <>
+            {row(<ZoomIn size={15} className="text-[var(--leaf)]" />, 'Zoom in (+)', onZoomIn)}
+            {row(null, 'Current zoom', null, `${zoomPercent}%`)}
+            {row(<ZoomOut size={15} className="text-[#fca5a5]" />, 'Zoom out (-)', onZoomOut)}
+          </>)}
+
+          <div className="divider" />
+
+          {group('Session', <>
+            {row(
+              <span
+                className="inline-block h-3 w-3 rounded-full"
+                style={{ background: gameMode === 'creative' ? 'var(--gold)' : 'var(--leaf)' }}
+              />,
+              gameMode === 'creative' ? 'Creative mode' : 'Survival mode',
+              onToggleGameMode,
+              'SWITCH'
             )}
-            {renderItem(
-              isMuted ? <VolumeX className="w-3.5 h-3.5 text-[#f87171]" /> : <Volume2 className="w-3.5 h-3.5 text-[#4ade80]" />,
-              'Sound',
-              onToggleSound,
-              isMuted ? 'MUTED' : 'ON'
+            {row(
+              isMuted ? <VolumeX size={15} className="text-[#f87171]" /> : <Volume2 size={15} className="text-[var(--leaf)]" />,
+              'Sound', onToggleSound, isMuted ? 'MUTED' : 'ON', !isMuted
             )}
-            {renderItem(<User className="w-3.5 h-3.5 text-[#facc15]" />, 'Profile / Player', onOpenProfile)}
-            {renderItem(<Map className="w-3.5 h-3.5 text-[#93c5fd]" />, 'World Map', onOpenMap)}
-            {renderItem(<HelpCircle className="w-3.5 h-3.5 text-[#60a5fa]" />, 'Help', onOpenHelp)}
-            {renderItem(<Lightbulb className="w-3.5 h-3.5 text-[#fde047]" />, 'Tips / Guide', onOpenTips)}
-          </div>
+            {row(<User size={15} className="text-[var(--gold)]" />, 'Character', onOpenProfile)}
+            {row(<Map size={15} className="text-[var(--sky)]" />, 'World generator', onOpenMap)}
+            {row(<Lightbulb size={15} className="text-[var(--gold)]" />, 'Tips &amp; guide', onOpenTips)}
+            {row(<HelpCircle size={15} className="text-[var(--sky)]" />, 'Controls &amp; help', onOpenHelp)}
+          </>)}
         </div>
       )}
     </div>

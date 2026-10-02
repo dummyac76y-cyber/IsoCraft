@@ -6,6 +6,8 @@ import { CharacterModal } from './components/CharacterModal';
 import { WorldModal } from './components/WorldModal';
 import { HelpModal } from './components/HelpModal';
 import { DeathModal } from './components/DeathModal';
+import { MobileControls } from './components/MobileControls';
+import { createTouchInput } from './engine/input';
 import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, BlockType } from './types';
 import { VoxelWorld } from './engine/world';
 import { sound } from './engine/sound';
@@ -191,6 +193,21 @@ export default function App() {
 
   // Infinite Voxel World Reference & Player Position Reference for Minimap
   const worldRef = useRef<VoxelWorld | null>(null);
+  // One shared touch bus: the on-screen controls write here, GameCanvas reads
+  // it inside its animation loop, so touch input never triggers a re-render.
+  const touchInputRef = useRef(createTouchInput());
+  const [isTouchDevice, setIsTouchDevice] = useState(
+    () => typeof window !== 'undefined' &&
+      (window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0)
+  );
+
+  useEffect(() => {
+    const query = window.matchMedia('(pointer: coarse)');
+    const onChange = () => setIsTouchDevice(query.matches || navigator.maxTouchPoints > 0);
+    query.addEventListener('change', onChange);
+    return () => query.removeEventListener('change', onChange);
+  }, []);
+
   const playerPosRef = useRef<{ x: number; y: number; z: number; facingAngle: number }>({
     x: 0,
     y: 8,
@@ -348,7 +365,7 @@ export default function App() {
   const isAnyModalOpen = isInventoryOpen || isCustomizerOpen || isWorldModalOpen || isHelpOpen || isDead;
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-[#120e0a] font-pixel select-none pixelated">
+    <div className="relative h-screen w-screen overflow-hidden bg-[var(--ink-900)] select-none">
       {/* 3D Three.js Infinite Voxel Sandbox Canvas */}
       <GameCanvas
         customization={customization}
@@ -378,9 +395,13 @@ export default function App() {
         onZoom={handleZoom}
         touchShiftMode={touchShiftMode}
         playerPosRef={playerPosRef}
+        touchInput={touchInputRef.current}
       />
 
-      {/* Retro 8-bit Heads-Up Display (HUD) */}
+      {/* Virtual joystick + action buttons for phones and tablets */}
+      <MobileControls input={touchInputRef.current} visible={isTouchDevice && !isAnyModalOpen} />
+
+      {/* Heads-up display */}
       <HUD
         playerStats={playerStats}
         inventory={inventory}
@@ -422,11 +443,8 @@ export default function App() {
         {floatingTexts.map(ft => (
           <div
             key={ft.id}
-            className="absolute font-pixel text-xs sm:text-sm font-bold drop-shadow-[0_2px_4px_rgba(0,0,0,1)] uppercase"
-            style={{
-              color: ft.color,
-              transform: 'translateY(-24px)'
-            }}
+            className="float-text absolute"
+            style={{ color: ft.color }}
           >
             {ft.text}
           </div>

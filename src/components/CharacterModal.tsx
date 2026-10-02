@@ -128,157 +128,125 @@ export const CharacterModal: React.FC<CharacterModalProps> = ({
 
   if (!isOpen) return null;
 
+
+interface ColorOption { name: string; value: string; }
+
+function ColorPicker({
+  label,
+  colors,
+  value,
+  onChange
+}: {
+  label: string;
+  colors: ColorOption[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const active = colors.find(c => c.value.toLowerCase() === value.toLowerCase());
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 font-pixel select-none">
-      <div className="relative w-full max-w-3xl pixel-box-wood flex flex-col max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 bg-[#24170e] border-b-4 border-[#160e09]">
-          <div className="flex items-center gap-3">
-            <div className="p-2 pixel-box-slot text-[#fbbf24]">
-              <User className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-xs sm:text-sm text-[#f5eedc] uppercase">CHARACTER WARDROBE</h2>
-              <p className="text-[8px] text-[#c49a6c]">CUSTOMIZE 8-BIT APPEARANCE & OUTFIT</p>
+    <section className="well p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="label">{label}</span>
+        <span className="body-sm text-[10px]">{active?.name ?? value}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {colors.map(c => (
+          <button
+            key={c.value}
+            type="button"
+            onClick={() => onChange(c.value)}
+            className={`swatch ${value.toLowerCase() === c.value.toLowerCase() ? 'is-selected' : ''}`}
+            style={{ backgroundColor: c.value }}
+            aria-label={c.name}
+            title={c.name}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+  return (
+    <div className="modal-scrim" onContextMenu={e => e.preventDefault()}>
+      <div className="panel modal max-w-3xl" role="dialog" aria-modal="true" aria-label="Character wardrobe">
+        <div className="modal-header">
+          <div className="modal-heading">
+            <div className="modal-icon" aria-hidden><User size={17} /></div>
+            <div className="min-w-0">
+              <h2 className="modal-title">Wardrobe</h2>
+              <p className="modal-sub">Live 3D preview</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="pixel-btn-danger p-1.5"
-            title="Close"
-          >
-            <X className="w-4 h-4 text-[#fef2f2]" />
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
+            <X size={16} />
           </button>
         </div>
 
-        {/* Body Content */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 overflow-y-auto">
-          {/* Left: 3D Preview */}
-          <div className="flex flex-col items-center gap-3">
-            <div
-              ref={previewRef}
-              className="w-full h-64 pixel-box-slot overflow-hidden"
-            />
-            <div className="text-[8px] text-[#c49a6c] text-center uppercase">
-              ORBITING 32-BIT HERO MODEL
-            </div>
+        <div className="modal-body md:grid md:grid-cols-2 md:gap-5 md:overflow-visible">
+          <div className="flex flex-col gap-2">
+            <div ref={previewRef} className="well h-64 overflow-hidden" />
+            <span className="eyebrow text-center">Your hero, rendered live</span>
           </div>
 
-          {/* Right: Customization Controls */}
-          <div className="flex flex-col gap-4 text-[#e5e7eb]">
-            {/* Hair Style */}
-            <div className="pixel-box-stone p-3">
-              <label className="text-[9px] text-[#fde047] block mb-2 uppercase">HAIRSTYLE & COIF</label>
-              <div className="grid grid-cols-2 gap-1.5">
+          <div className="flex flex-col gap-3">
+            <section className="well p-3">
+              <span className="label">Hairstyle</span>
+              <div className="mt-2 grid grid-cols-1 gap-1.5">
                 {HAIR_STYLES.map(style => (
                   <button
                     key={style.id}
+                    type="button"
                     onClick={() => setCustomization({ ...customization, hairStyle: style.id })}
-                    className={`p-2 text-left text-[8px] border-2 uppercase ${
-                      customization.hairStyle === style.id
-                        ? 'bg-[#4a3422] border-[#facc15] text-[#fef08a]'
-                        : 'pixel-btn-stone'
-                    }`}
+                    className={`option-card !py-2 ${customization.hairStyle === style.id ? 'is-selected' : ''}`}
                   >
-                    {style.label}
+                    <span className="option-title">{style.label}</span>
                   </button>
                 ))}
               </div>
-            </div>
+            </section>
 
-            {/* Hair Color Palette */}
-            <div className="pixel-box-stone p-3">
-              <label className="text-[9px] text-[#fde047] block mb-2 uppercase">HAIR COLOR</label>
-              <div className="flex flex-wrap gap-2">
-                {HAIR_COLORS.map(c => (
-                  <button
-                    key={c.value}
-                    onClick={() => setCustomization({ ...customization, hairColor: c.value })}
-                    className={`w-7 h-7 border-2 ${
-                      customization.hairColor === c.value
-                        ? 'border-[#fde047] scale-110 shadow-md'
-                        : 'border-[#181a1e]'
-                    }`}
-                    style={{ backgroundColor: c.value }}
-                    title={c.name}
-                  />
-                ))}
-              </div>
-            </div>
+            <ColorPicker
+              label="Hair colour"
+              colors={HAIR_COLORS}
+              value={customization.hairColor}
+              onChange={value => setCustomization({ ...customization, hairColor: value })}
+            />
+            <ColorPicker
+              label="Complexion"
+              colors={SKIN_TONES}
+              value={customization.skinTone}
+              onChange={value => setCustomization({ ...customization, skinTone: value })}
+            />
+            <ColorPicker
+              label="Tunic dye"
+              colors={TUNIC_COLORS}
+              value={customization.tunicColor}
+              onChange={value => setCustomization({ ...customization, tunicColor: value })}
+            />
 
-            {/* Skin Tone */}
-            <div className="pixel-box-stone p-3">
-              <label className="text-[9px] text-[#fde047] block mb-2 uppercase">COMPLEXION</label>
-              <div className="flex flex-wrap gap-2">
-                {SKIN_TONES.map(s => (
-                  <button
-                    key={s.value}
-                    onClick={() => setCustomization({ ...customization, skinTone: s.value })}
-                    className={`w-7 h-7 border-2 ${
-                      customization.skinTone === s.value
-                        ? 'border-[#fde047] scale-110 shadow-md'
-                        : 'border-[#181a1e]'
-                    }`}
-                    style={{ backgroundColor: s.value }}
-                    title={s.name}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Tunic Color */}
-            <div className="pixel-box-stone p-3">
-              <label className="text-[9px] text-[#fde047] block mb-2 uppercase">TUNIC DYE COLOR</label>
-              <div className="flex flex-wrap gap-2">
-                {TUNIC_COLORS.map(t => (
-                  <button
-                    key={t.value}
-                    onClick={() => setCustomization({ ...customization, tunicColor: t.value })}
-                    className={`w-7 h-7 border-2 ${
-                      customization.tunicColor === t.value
-                        ? 'border-[#fde047] scale-110 shadow-md'
-                        : 'border-[#181a1e]'
-                    }`}
-                    style={{ backgroundColor: t.value }}
-                    title={t.name}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Armor Tier */}
-            <div className="pixel-box-stone p-3">
-              <label className="text-[9px] text-[#fde047] flex items-center gap-1.5 mb-2 uppercase">
-                <Shield className="w-3.5 h-3.5 text-[#fbbf24]" />
-                <span>ARMOR APPAREL TIER</span>
-              </label>
-              <div className="flex flex-col gap-1.5">
+            <section className="well p-3">
+              <span className="label flex items-center gap-1.5">
+                <Shield size={12} className="text-[var(--gold)]" />
+                Armour tier
+              </span>
+              <div className="mt-2 flex flex-col gap-1.5">
                 {ARMOR_TIERS.map(a => (
                   <button
                     key={a.id}
+                    type="button"
                     onClick={() => setCustomization({ ...customization, armorTier: a.id })}
-                    className={`p-2 text-left text-[8px] border-2 uppercase ${
-                      customization.armorTier === a.id
-                        ? 'bg-[#4a3422] border-[#facc15] text-[#fef08a]'
-                        : 'pixel-btn-stone'
-                    }`}
+                    className={`option-card !py-2 ${customization.armorTier === a.id ? 'is-selected' : ''}`}
                   >
-                    {a.label}
+                    <span className="option-title">{a.label}</span>
                   </button>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-3 bg-[#24170e] border-t-4 border-[#160e09] flex justify-end">
-          <button
-            onClick={onClose}
-            className="pixel-btn-gold py-2 px-6 text-[10px] uppercase font-bold"
-          >
-            CONFIRM STYLE
-          </button>
+        <div className="modal-footer">
+          <button type="button" className="btn btn-primary" onClick={onClose}>Done</button>
         </div>
       </div>
     </div>
