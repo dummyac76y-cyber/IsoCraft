@@ -38,6 +38,8 @@ export interface KenneyCharacter {
   mixer: THREE.AnimationMixer;
   /** 0 = idle, 1 = full walk; values in between crossfade the clips */
   setLocomotion: (speed01: number) => void;
+  /** Override locomotion with the sprint clip (false restores setLocomotion) */
+  setSprint: (sprinting: boolean) => void;
   update: (delta: number) => void;
 }
 
@@ -180,17 +182,40 @@ export function instantiateKenneyCharacter(model: LoadedKenneyModel, targetHeigh
     walkAction.setEffectiveWeight(0);
   }
 
+  // Optional sprint clip (used by the player character)
+  const sprintClip = model.animations.find(a => a.name === 'sprint');
+  let sprintAction: THREE.AnimationAction | null = null;
+  if (sprintClip) {
+    sprintAction = mixer.clipAction(sprintClip);
+    sprintAction.play();
+    sprintAction.setEffectiveWeight(0);
+  }
+
   // Apply the idle pose immediately so the bind (T) pose never flashes
   mixer.update(0);
+
+  let locomotion01 = 0;
 
   return {
     root: holder,
     mixer,
     setLocomotion: (speed01: number) => {
+      locomotion01 = Math.max(0, Math.min(1, speed01));
       if (!walkAction) return;
-      const t = Math.max(0, Math.min(1, speed01));
-      walkAction.setEffectiveWeight(t);
-      idleAction.setEffectiveWeight(1 - t);
+      walkAction.setEffectiveWeight(locomotion01);
+      idleAction.setEffectiveWeight(1 - locomotion01);
+    },
+    setSprint: (sprinting: boolean) => {
+      if (!sprintAction) return;
+      if (sprinting) {
+        sprintAction.setEffectiveWeight(1);
+        if (walkAction) walkAction.setEffectiveWeight(0);
+        idleAction.setEffectiveWeight(0);
+      } else {
+        sprintAction.setEffectiveWeight(0);
+        if (walkAction) walkAction.setEffectiveWeight(locomotion01);
+        idleAction.setEffectiveWeight(1 - locomotion01);
+      }
     },
     update: (delta: number) => mixer.update(delta)
   };

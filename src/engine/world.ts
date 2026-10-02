@@ -968,25 +968,9 @@ export class VoxelWorld {
       }
     }
 
-    // Deterministic Trees & Vegetation in this chunk
-    const treeHash = hash2D(cx * 33.7, cz * 47.9, this.seed);
-    // Sparse legacy trees: they stay mineable for wood, while the landscape
-    // is dominated by the Kenney GLB forest from KenneyDecorationManager
-    const numTrees = treeHash > 0.6 ? 1 : 0;
-
-    for (let t = 0; t < numTrees; t++) {
-      const tx = 3 + Math.floor(hash2D(t * 19.3, cx, cz) * 10);
-      const tz = 3 + Math.floor(hash2D(t * 29.7, cz, cx) * 10);
-      const ty = heightMap[tx][tz];
-
-      if (ty >= waterLevel + 2 && ty < CHUNK_HEIGHT - 8) {
-        const ground = chunk.getLocalBlock(tx, ty, tz);
-        if (ground === BlockType.GRASS || ground === BlockType.SNOW_GRASS || ground === BlockType.SNOW) {
-          const isSnowTree = ground === BlockType.SNOW || ground === BlockType.SNOW_GRASS;
-          this.generateTreeInChunk(chunk, tx, ty + 1, tz, isSnowTree);
-        }
-      }
-    }
+    // Legacy voxel trees are gone: the forest is 100% Kenney Mini Forest GLB
+    // props scattered by KenneyDecorationManager (InstancedMesh buckets).
+    // Wood remains craftable from the cottage's mineable planks.
 
     // Deterministic Ruin Cottage / Village Outpost
     const chunkScore = Math.floor(hash2D(cx * 77.1, cz * 89.3, this.seed) * 100);
@@ -1015,31 +999,6 @@ export class VoxelWorld {
     }
 
     return chunk;
-  }
-
-  private generateTreeInChunk(chunk: VoxelChunk, tx: number, ty: number, tz: number, isSnow: boolean) {
-    const trunkHeight = isSnow ? 5 : 4;
-    for (let dy = 0; dy < trunkHeight; dy++) {
-      chunk.setLocalBlock(tx, ty + dy, tz, BlockType.WOOD_LOG);
-    }
-
-    const topY = ty + trunkHeight;
-    for (let lx = -2; lx <= 2; lx++) {
-      for (let lz = -2; lz <= 2; lz++) {
-        for (let ly = -1; ly <= 1; ly++) {
-          if (Math.abs(lx) === 2 && Math.abs(lz) === 2 && ly === 1) continue;
-          const px = tx + lx;
-          const py = topY + ly;
-          const pz = tz + lz;
-          if (chunk.getLocalBlock(px, py, pz) === BlockType.AIR) {
-            chunk.setLocalBlock(px, py, pz, BlockType.LEAVES);
-            if (isSnow && ly === 1) {
-              chunk.setLocalBlock(px, py + 1, pz, BlockType.SNOW);
-            }
-          }
-        }
-      }
-    }
   }
 
   private generateCottageInChunk(chunk: VoxelChunk, startX: number, startZ: number, heightMap: number[][]) {
