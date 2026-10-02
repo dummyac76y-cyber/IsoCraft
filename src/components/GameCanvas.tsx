@@ -138,9 +138,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    // Shadow maps are refreshed on a throttled cadence (see animate loop):
+    // re-rendering every chunk + every rigged mob into two 1024px maps each
+    // frame was the single biggest source of frame drops.
+    renderer.shadowMap.autoUpdate = false;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
     renderer.domElement.style.imageRendering = 'pixelated';
@@ -168,10 +172,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // Spawn starting mobs around spawn
     mobManager.spawnMob('villager', safeSpawn.x + 3, safeSpawn.y, safeSpawn.z - 3);
-    mobManager.spawnMob('sheep', safeSpawn.x + 4, safeSpawn.y, safeSpawn.z + 3);
-    mobManager.spawnMob('sheep', safeSpawn.x - 5, safeSpawn.y, safeSpawn.z - 4);
-    mobManager.spawnMob('slime', safeSpawn.x + 8, safeSpawn.y, safeSpawn.z + 9);
-    mobManager.spawnMob('slime', safeSpawn.x - 9, safeSpawn.y, safeSpawn.z + 7);
+    mobManager.spawnMob('villager', safeSpawn.x + 4, safeSpawn.y, safeSpawn.z + 3);
+    mobManager.spawnMob('villager', safeSpawn.x - 5, safeSpawn.y, safeSpawn.z - 4);
+    mobManager.spawnMob('skeleton', safeSpawn.x + 8, safeSpawn.y, safeSpawn.z + 9);
+    mobManager.spawnMob('goblin', safeSpawn.x - 9, safeSpawn.y, safeSpawn.z + 7);
     mobManager.spawnMob('skeleton', safeSpawn.x + 14, safeSpawn.y, safeSpawn.z + 14);
     mobManager.spawnMob('goblin', safeSpawn.x - 12, safeSpawn.y, safeSpawn.z - 8);
     // Extra villagers so the Kenney Mini Characters pack shows real variety
@@ -186,7 +190,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     // Dynamic Mob Spawner across Infinite Terrain
     let lastMobSpawnTime = 0;
     const updateInfiniteMobSpawning = (time: number) => {
-      if (time - lastMobSpawnTime > 7000 && mobManager.mobs.length < 18) {
+      if (time - lastMobSpawnTime > 7000 && mobManager.mobs.length < 12) {
         lastMobSpawnTime = time;
         const angle = Math.random() * Math.PI * 2;
         const dist = 16 + Math.random() * 20;
@@ -200,10 +204,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             const hostile = Math.random() < 0.5 ? 'skeleton' : 'goblin';
             mobManager.spawnMob(hostile, mx + 0.5, groundY, mz + 0.5);
           } else {
-            // Daytime also wanders Kenney villager NPCs into the world
-            const roll = Math.random();
-            const peaceful = roll < 0.45 ? 'sheep' : roll < 0.75 ? 'slime' : 'villager';
-            mobManager.spawnMob(peaceful, mx + 0.5, groundY, mz + 0.5);
+            // Daytime wanderers are Kenney villager NPCs (every mob in the
+            // game now uses the Kenney Mini Characters pack)
+            mobManager.spawnMob('villager', mx + 0.5, groundY, mz + 0.5);
           }
         }
       }
@@ -659,32 +662,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             }));
           }
           return;
-        } else if (clickedMob.type === 'villager' || clickedMob.type === 'sheep') {
+        } else if (clickedMob.type === 'villager') {
           // NPC interaction dialogue
           character.triggerInteract();
           targetFacingAngle = Math.atan2(clickedMob.x - playerPos.x, clickedMob.z - playerPos.z);
-          if (clickedMob.type === 'villager') {
-            sound.playItemCollect();
-            const quotes = [
-              "Welcome to the infinite voxel realm!",
-              "Explore mountains, rivers, and ancient ruins!",
-              "Press Shift + Click to automatically navigate!",
-              "A sharp sword keeps nighttime creatures away!",
-              "Press C to change your character's outfit!"
-            ];
-            addFloatingText(quotes[Math.floor(Math.random() * quotes.length)], clickedMob.x, clickedMob.y + 1.6, clickedMob.z, '#4ade80');
-          } else {
-            sound.playStep('grass');
-            addFloatingText('Baaa! 🐑 (Sheared Wool)', clickedMob.x, clickedMob.y + 1.2, clickedMob.z, '#f5f5f4');
-            mobManager.spawnDrop({
-              id: 'wool',
-              name: 'White Wool',
-              type: 'resource',
-              count: 1,
-              maxStack: 64,
-              description: 'Soft fluffy sheep wool'
-            }, clickedMob.x, clickedMob.y + 0.5, clickedMob.z);
-          }
+          sound.playItemCollect();
+          const quotes = [
+            "Welcome to the infinite voxel realm!",
+            "Explore mountains, rivers, and ancient ruins!",
+            "Press Shift + Click to automatically navigate!",
+            "A sharp sword keeps nighttime creatures away!",
+            "Press C to change your character's outfit!"
+          ];
+          addFloatingText(quotes[Math.floor(Math.random() * quotes.length)], clickedMob.x, clickedMob.y + 1.6, clickedMob.z, '#4ade80');
           return;
         }
       }
@@ -826,6 +816,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let invulnerableTimer = 0;
     let lastProcessedRespawn = respawnCountRef.current;
 
+    let shadowFrame = 0;
     const animate = (time: number) => {
       animFrameId = requestAnimationFrame(animate);
 
@@ -1433,6 +1424,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           return newInv;
         });
       }
+
+      // Throttled shadow refresh: re-render the shadow maps every ~5 frames
+      // instead of every frame (dynamic sun + mobs still update ~12x/sec).
+      shadowFrame = (shadowFrame + 1) % 5;
+      if (shadowFrame === 0) renderer.shadowMap.needsUpdate = true;
 
       renderer.render(scene, camera);
     };
