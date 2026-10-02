@@ -1172,3 +1172,47 @@
     width: 158px;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Top layers
+   -------------------------------------------------------------------------- */
+
+/*
+ * The pause menu and the toast sit above the touch controls (z-30), which own
+ * the joystick and action pad. Anything painted inside .hud is z-10, so a menu
+ * living there gets covered and its taps get eaten.
+ */
+.px-menu-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 64px 12px 12px;
+  pointer-events: auto;
+  background: rgba(23, 21, 18, 0.5);
+}
+
+@media (min-width: 640px) {
+  .px-menu-layer {
+    padding: 72px 16px 16px;
+  }
+}
+
+.px-menu {
+  width: 236px;
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+}
+
+.px-toast-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 12px;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}

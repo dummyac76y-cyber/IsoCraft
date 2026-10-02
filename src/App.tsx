@@ -8,6 +8,7 @@ import { HelpModal } from './components/HelpModal';
 import { DeathModal } from './components/DeathModal';
 import { MobileControls } from './components/MobileControls';
 import { PixelPanel } from './components/PixelPanel';
+import { PauseMenu } from './components/PauseMenu';
 import { createTouchInput } from './engine/input';
 import { cycleFromDate } from './engine/dayNight';
 import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, BlockType } from './types';
@@ -198,6 +199,21 @@ export default function App() {
   // touch controls down. Otherwise the stick and action pad sit on top of the
   // menu and swallow its taps.
   const [isHudMenuOpen, setIsHudMenuOpen] = useState<boolean>(false);
+  const [showMinimap, setShowMinimap] = useState<boolean>(true);
+  // One toast surface for the whole UI, so the pause menu can report a toggle
+  // without owning its own.
+  const [notice, setNotice] = useState<string>('');
+  const noticeTimerRef = useRef<number | null>(null);
+
+  const notify = React.useCallback((message: string) => {
+    setNotice(message);
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setNotice(''), 1600);
+  }, []);
+
+  useEffect(() => () => {
+    if (noticeTimerRef.current !== null) window.clearTimeout(noticeTimerRef.current);
+  }, []);
 
   // --- Floating Text Overlay ---
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
@@ -245,6 +261,11 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isDead) return;
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+      if (e.code === 'Escape') {
+        setIsHudMenuOpen(false);
+        return;
+      }
 
       if (e.code === 'KeyI' || e.code === 'Tab') {
         if (e.code === 'Tab') e.preventDefault();
@@ -441,36 +462,57 @@ export default function App() {
         inventory={inventory}
         activeSlot={activeSlot}
         setActiveSlot={setActiveSlot}
-        gameMode={gameMode}
-        setGameMode={setGameMode}
         dayTime={dayTime}
+        menuOpen={isHudMenuOpen}
+        setMenuOpen={setIsHudMenuOpen}
+        showMinimap={showMinimap}
+        onOpenInventory={() => {
+          setIsInventoryOpen(true);
+          setIsAtBench(false);
+          setChestModalData(null);
+        }}
+        worldRef={worldRef}
+        playerPosRef={playerPosRef}
+        cameraAngle={cameraAngle}
+        playerName={PLAYER_NAME}
+      />
+
+      {/* Toast sits above the world but below the pause menu */}
+      {notice && (
+        <div className="px-toast-layer">
+          <div className="px-toast">{notice}</div>
+        </div>
+      )}
+
+      {/*
+        The pause menu is its own layer above the touch controls, so the
+        joystick and action pad can never cover it or steal its taps.
+      */}
+      <PauseMenu
+        open={isHudMenuOpen}
+        onClose={() => setIsHudMenuOpen(false)}
+        onOpenInventory={() => { setIsInventoryOpen(true); setIsAtBench(false); setChestModalData(null); }}
+        onOpenCustomizer={() => setIsCustomizerOpen(true)}
+        onOpenWorldModal={() => setIsWorldModalOpen(true)}
+        onOpenHelp={() => setIsHelpOpen(true)}
+        gameMode={gameMode}
+        onSetGameMode={setGameMode}
+        showMinimap={showMinimap}
+        onToggleMinimap={() => setShowMinimap(v => !v)}
         isMuted={isMuted}
-        setIsMuted={setIsMuted}
-        onResetCamera={handleResetCamera}
+        onSetMuted={setIsMuted}
         autoRotateCamera={autoRotateCamera}
-        onToggleAutoRotateCamera={handleToggleAutoRotateCamera}
+        onToggleAutoRotate={handleToggleAutoRotateCamera}
         autoRotateSpeed={autoRotateSpeed}
         onCycleAutoRotateSpeed={handleCycleAutoRotateSpeed}
         visionOpacity={visionOpacity}
         onCycleVisionOpacity={handleCycleVisionOpacity}
         zoomLevel={zoomLevel}
         onZoom={handleZoom}
-        menuOpen={isHudMenuOpen}
-        setMenuOpen={setIsHudMenuOpen}
-        onOpenInventory={() => {
-          setIsInventoryOpen(true);
-          setIsAtBench(false);
-          setChestModalData(null);
-        }}
-        onOpenCustomizer={() => setIsCustomizerOpen(true)}
-        onOpenWorldModal={() => setIsWorldModalOpen(true)}
-        onOpenHelp={() => setIsHelpOpen(true)}
-        worldRef={worldRef}
-        playerPosRef={playerPosRef}
-        cameraAngle={cameraAngle}
-        playerName={PLAYER_NAME}
+        onResetCamera={handleResetCamera}
         timeOffsetHours={timeOffsetHours}
         onShiftTime={(hours) => setTimeOffsetHours(prev => (((prev + hours) % 24) + 24) % 24)}
+        notify={notify}
       />
 
       {/* NPC conversation bubble */}
