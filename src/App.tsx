@@ -194,6 +194,10 @@ export default function App() {
   const [isCustomizerOpen, setIsCustomizerOpen] = useState<boolean>(false);
   const [isWorldModalOpen, setIsWorldModalOpen] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  // Owned here, not in the HUD, so opening the pause menu can also stand the
+  // touch controls down. Otherwise the stick and action pad sit on top of the
+  // menu and swallow its taps.
+  const [isHudMenuOpen, setIsHudMenuOpen] = useState<boolean>(false);
 
   // --- Floating Text Overlay ---
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
@@ -386,6 +390,10 @@ export default function App() {
   const activeItem = inventory[activeSlot] || null;
   const isAnyModalOpen = isInventoryOpen || isCustomizerOpen || isWorldModalOpen || isHelpOpen || isDead;
 
+  useEffect(() => {
+    if (isAnyModalOpen) setIsHudMenuOpen(false);
+  }, [isAnyModalOpen]);
+
   return (
     <div className="relative h-screen w-screen overflow-hidden select-none" style={{ background: 'var(--px-void)' }}>
       {/* 3D Three.js Infinite Voxel Sandbox Canvas */}
@@ -422,7 +430,10 @@ export default function App() {
       />
 
       {/* Virtual joystick + action buttons for phones and tablets */}
-      <MobileControls input={touchInputRef.current} visible={isTouchDevice && !isAnyModalOpen} />
+      <MobileControls
+        input={touchInputRef.current}
+        visible={isTouchDevice && !isAnyModalOpen && !isHudMenuOpen}
+      />
 
       {/* Heads-up display */}
       <HUD
@@ -444,6 +455,8 @@ export default function App() {
         onCycleVisionOpacity={handleCycleVisionOpacity}
         zoomLevel={zoomLevel}
         onZoom={handleZoom}
+        menuOpen={isHudMenuOpen}
+        setMenuOpen={setIsHudMenuOpen}
         onOpenInventory={() => {
           setIsInventoryOpen(true);
           setIsAtBench(false);

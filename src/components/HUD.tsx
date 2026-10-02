@@ -29,6 +29,9 @@ interface HUDProps {
   onCycleVisionOpacity?: () => void;
   zoomLevel?: number;
   onZoom: (delta: number) => void;
+  /** The pause menu is lifted into App so the touch layer can step aside for it. */
+  menuOpen: boolean;
+  setMenuOpen: (open: boolean) => void;
   onOpenInventory: () => void;
   onOpenCustomizer: () => void;
   onOpenWorldModal: () => void;
@@ -66,10 +69,9 @@ export const HUD: React.FC<HUDProps> = ({
   playerStats, inventory, activeSlot, setActiveSlot, gameMode, setGameMode, dayTime, isMuted, setIsMuted,
   onOpenInventory, onOpenCustomizer, onOpenHelp, onResetCamera, autoRotateCamera, onToggleAutoRotateCamera,
   autoRotateSpeed, onCycleAutoRotateSpeed, visionOpacity = 0.85, onCycleVisionOpacity,
-  zoomLevel = 20, onZoom, worldRef, playerPosRef, cameraAngle,
+  zoomLevel = 20, onZoom, menuOpen, setMenuOpen, worldRef, playerPosRef, cameraAngle,
   playerName = 'Riven', objective, timeOffsetHours = 0, onShiftTime
 }) => {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
   const [notice, setNotice] = useState('');
   const [tooltipAnchor, setTooltipAnchor] = useState(0);
@@ -131,7 +133,7 @@ export const HUD: React.FC<HUDProps> = ({
             type="button"
             className="px-icon-btn"
             aria-label={menuOpen ? 'Close pause menu' : 'Open pause menu'}
-            onClick={() => setMenuOpen(v => !v)}
+            onClick={() => setMenuOpen(!menuOpen)}
           >
             <PixelIcon name={menuOpen ? 'close' : 'gear'} size={12} />
           </button>
