@@ -2,6 +2,15 @@ import * as THREE from 'three';
 import { MobEntity, DroppedItemEntity, Item, BlockType } from '../types';
 import { sound } from './sound';
 import { VoxelWorld } from './world';
+import { loadKenneyModel, instanceKenneyModel } from './kenney';
+
+// Kenney Mini Characters pack: 12 humanoid variants used for NPC villagers
+const KENNEY_CHARACTER_MODELS = [
+  'character-male-a', 'character-male-b', 'character-male-c',
+  'character-male-d', 'character-male-e', 'character-male-f',
+  'character-female-a', 'character-female-b', 'character-female-c',
+  'character-female-d', 'character-female-e', 'character-female-f'
+];
 
 export class MobManager {
   public group: THREE.Group;
@@ -168,6 +177,11 @@ export class MobManager {
       const hood = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.34), hoodMat);
       hood.position.set(0, 0.98, 0);
       mobGroup.add(hood);
+
+      // Upgrade to a Kenney Mini Characters GLB model once loaded
+      // (the voxel villager above stays as an instant fallback)
+      const variant = KENNEY_CHARACTER_MODELS[Math.floor(Math.random() * KENNEY_CHARACTER_MODELS.length)];
+      this.attachKenneyNpc(mobGroup, mob, variant, 1.35);
     } else {
       // Sheep: white wool cube body + little head
       const woolMat = new THREE.MeshLambertMaterial({ color: 0xf5f5f0 });
@@ -198,6 +212,37 @@ export class MobManager {
     }
 
     return mobGroup;
+  }
+
+  // Replace a mob's voxel shell with a Kenney Mini Characters GLB model.
+  // Falls back silently to the voxel model if the asset fails to load.
+  private attachKenneyNpc(group: THREE.Group, mob: MobEntity, model: string, height: number) {
+    loadKenneyModel('mini-characters', model)
+      .then(template => {
+        // Mob was defeated before the model finished loading: drop the clone
+        if (!this.mobs.includes(mob)) return;
+
+        // Dispose the temporary voxel shell (all materials/geometries are mob-local)
+        const staleGeometries = new Set<THREE.BufferGeometry>();
+        const staleMaterials = new Set<THREE.Material>();
+        [...group.children].forEach(child => {
+          group.remove(child);
+          child.traverse(obj => {
+            if (obj instanceof THREE.Mesh) {
+              staleGeometries.add(obj.geometry);
+              const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+              mats.forEach(m => staleMaterials.add(m));
+            }
+          });
+        });
+        staleGeometries.forEach(g => g.dispose());
+        staleMaterials.forEach(m => m.dispose());
+
+        group.add(instanceKenneyModel(template, height));
+      })
+      .catch(() => {
+        // Asset unavailable: keep the original voxel villager
+      });
   }
 
   // Spawn Dropped Item
