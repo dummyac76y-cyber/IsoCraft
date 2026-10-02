@@ -87,6 +87,11 @@ export class CharacterModel {
     this.customization = customization;
     this.group = new THREE.Group();
     this.group.name = 'Character';
+    // The player is never allowed to be frustum-culled. The body is a rigged
+    // mesh scaled through two wrapper groups, and if any bound in that chain
+    // is stale the whole figure disappears while the world keeps drawing.
+    // One object, one frame, nothing to lose.
+    this.group.frustumCulled = false;
 
     // 1. Soft contact ground shadow beneath feet
     const shadowGeo = new THREE.CircleGeometry(0.4, 16);
@@ -223,6 +228,9 @@ export class CharacterModel {
           }
         });
 
+        instance.root.traverse(obj => {
+          obj.frustumCulled = false;
+        });
         this.bodyHolder.add(instance.root);
         this.character = instance;
         this.bodyState = 'ready';
