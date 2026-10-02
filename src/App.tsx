@@ -7,8 +7,8 @@ import { WorldModal } from './components/WorldModal';
 import { HelpModal } from './components/HelpModal';
 import { DeathModal } from './components/DeathModal';
 import { MobileControls } from './components/MobileControls';
-import { PixelPanel } from './components/PixelPanel';
 import { PauseMenu } from './components/PauseMenu';
+import { ChatBox, NpcLine } from './components/ChatBox';
 import { createTouchInput } from './engine/input';
 import { cycleFromDate } from './engine/dayNight';
 import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, BlockType } from './types';
@@ -313,18 +313,27 @@ export default function App() {
     setZoomLevel(prev => Math.max(10, Math.min(45, prev + delta)));
   };
 
-  // NPC conversation, shown as a bubble for a few seconds
-  const [npcDialogue, setNpcDialogue] = useState<{ name: string; role: string; line: string } | null>(null);
-  const npcTimerRef = useRef<number | null>(null);
+  // NPC conversation. The chat box stays open until it is dismissed, so this is
+  // a session rather than a toast: the loop publishes a small talk API that the
+  // box uses to ask for the next line.
+  const [npcDialogue, setNpcDialogue] = useState<NpcLine | null>(null);
+  const [npcTurn, setNpcTurn] = useState(0);
+  const talkApiRef = useRef<{ continue: () => void } | null>(null);
 
-  const handleNpcDialogue = (dialogue: { name: string; role: string; line: string }) => {
+  const handleNpcDialogue = React.useCallback((dialogue: NpcLine) => {
     setNpcDialogue(dialogue);
-    if (npcTimerRef.current !== null) window.clearTimeout(npcTimerRef.current);
-    npcTimerRef.current = window.setTimeout(() => setNpcDialogue(null), 7000);
-  };
+  }, []);
 
-  useEffect(() => () => {
-    if (npcTimerRef.current !== null) window.clearTimeout(npcTimerRef.current);
+  const closeNpcDialogue = React.useCallback(() => {
+    setNpcDialogue(null);
+    setNpcTurn(0);
+    talkApiRef.current = null;
+  }, []);
+
+  const continueNpcDialogue = React.useCallback(() => {
+    if (!talkApiRef.current) return;
+    talkApiRef.current.continue();
+    setNpcTurn(t => t + 1);
   }, []);
 
   const activeItem = inventory[activeSlot] || null;
@@ -333,6 +342,11 @@ export default function App() {
   useEffect(() => {
     if (isAnyModalOpen) setIsHudMenuOpen(false);
   }, [isAnyModalOpen]);
+
+  // A modal takes the whole screen, so the conversation goes with it
+  useEffect(() => {
+    if (isAnyModalOpen) closeNpcDialogue();
+  }, [isAnyModalOpen, closeNpcDialogue]);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden select-none" style={{ background: 'var(--px-void)' }}>
@@ -365,6 +379,7 @@ export default function App() {
         playerPosRef={playerPosRef}
         touchInput={touchInputRef.current}
         onNpcDialogue={handleNpcDialogue}
+        talkApiRef={talkApiRef}
       />
 
       {/* Virtual joystick + action buttons for phones and tablets */}
@@ -432,17 +447,14 @@ export default function App() {
         notify={notify}
       />
 
-      {/* NPC conversation bubble */}
+      {/* NPC conversation, above the world and below the pause menu */}
       {npcDialogue && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-32 z-30 flex justify-center px-4">
-          <PixelPanel className="px-speech" notched padding={6}>
-            <div className="flex items-center gap-2">
-              <span className="px-title" style={{ color: 'var(--px-gold)' }}>{npcDialogue.name}</span>
-              <span className="px-label">{npcDialogue.role}</span>
-            </div>
-            <p className="px-copy mt-1.5">{npcDialogue.line}</p>
-          </PixelPanel>
-        </div>
+        <ChatBox
+          dialogue={npcDialogue}
+          onContinue={continueNpcDialogue}
+          onClose={closeNpcDialogue}
+          turn={npcTurn + 1}
+        />
       )}
 
       {/* Floating 8-bit Notifications */}

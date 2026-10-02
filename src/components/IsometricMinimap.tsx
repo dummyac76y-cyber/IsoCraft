@@ -35,8 +35,12 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
     const render = (time: number) => {
       animId = requestAnimationFrame(render);
 
-      // Limit minimap redraw to ~30 FPS for peak 60fps performance on low-end devices
-      if (time - lastRenderTime < 33) return;
+      // 20 FPS is plenty for a map that only changes as you walk, and it
+      // leaves the GPU to the world. The redraw also used to push a fresh
+      // coords object into React state every single frame, which re-rendered
+      // the map 30 times a second; state is now only written when a value
+      // actually moves.
+      if (time - lastRenderTime < 50) return;
       lastRenderTime = time;
       pulseTime += 0.05;
 
@@ -53,14 +57,14 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
       const playerZ = p.z;
       const facingAngle = p.facingAngle;
 
-      setCurrentCoords({
-        x: Math.floor(playerX),
-        y: Math.floor(playerY),
-        z: Math.floor(playerZ)
-      });
+      const cx = Math.floor(playerX);
+      const cy = Math.floor(playerY);
+      const cz = Math.floor(playerZ);
+      setCurrentCoords(prev => (prev.x === cx && prev.y === cy && prev.z === cz ? prev : { x: cx, y: cy, z: cz }));
 
       if (world) {
-        setCurrentBiome(world.getBiomeAt(Math.floor(playerX), Math.floor(playerZ)));
+        const biome = world.getBiomeAt(cx, cz);
+        setCurrentBiome(prev => (prev === biome ? prev : biome));
       }
 
       ctx.imageSmoothingEnabled = false;
@@ -228,7 +232,11 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
         }
       }
 
-      setNearestStructure(closest && closest.dist <= 38 ? closest : null);
+      const near = closest && closest.dist <= 38 ? closest : null;
+      setNearestStructure(prev =>
+        prev === null && near === null ? prev :
+        prev && near && prev.name === near.name && prev.dist === near.dist ? prev : near
+      );
 
       // Render Player Beacon & Facing Chevron
       const beaconRadius = 4 + (Math.sin(pulseTime * 2.5) * 0.5 + 0.5) * 4;

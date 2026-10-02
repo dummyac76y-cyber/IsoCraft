@@ -44,6 +44,12 @@ interface GameCanvasProps {
   onNpcDialogue?: (dialogue: { name: string; role: string; line: string }) => void;
   /** Name an NPC uses when greeting the player. */
   playerName?: string;
+  /**
+   * Handle the chat box uses to keep a conversation going. The game loop owns
+   * the mob manager, so it publishes this small API back up to the UI instead of
+   * the UI reaching into the engine.
+   */
+  talkApiRef?: React.MutableRefObject<{ continue: () => void } | null>;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
@@ -74,7 +80,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   playerPosRef,
   touchInput,
   onNpcDialogue,
-  playerName = 'Traveller'
+  playerName = 'Traveller',
+  talkApiRef
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -178,6 +185,39 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // --- Mobs & Drops Manager ---
     const mobManager = new MobManager();
+
+    // The scene graph is built once, so props read inside the loop go through
+    // refs rather than closing over the values from the first render.
+    const playerNameRef = { current: playerName };
+    playerNameRef.current = playerName;
+    const onNpcDialogueRef = { current: onNpcDialogue };
+    onNpcDialogueRef.current = onNpcDialogue;
+
+    /**
+     * Emit a conversation turn. `lastTalkedMob` is the anchor for the chat box:
+     * every "keep talking" press re-asks this mob with a bumped nonce so the
+     * lines rotate instead of repeating.
+     */
+    let lastTalkedMob: MobEntity | null = null;
+    let talkTurn = 0;
+    const sayLine = (mob: MobEntity, floating: boolean) => {
+      lastTalkedMob = mob;
+      const talk = mobManager.npcDialogue(mob, playerNameRef.current, talkTurn);
+      if (floating) {
+        addFloatingText(talk.line, mob.x, mob.y + 2.2, mob.z, '#7dd3fc');
+      }
+      onNpcDialogueRef.current?.(talk);
+    };
+
+    talkApiRef && (talkApiRef.current = {
+      continue: () => {
+        if (!lastTalkedMob) return;
+        talkTurn++;
+        sayLine(lastTalkedMob, false);
+      }
+    });
+
+
     scene.add(mobManager.group);
 
     // Opening cast: a trader pair by the camp and a first hostile ring, all
@@ -360,6 +400,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let isMouseDown = false;
     let mouseButton = 0;
     let isMiddleDragging = false;
+    // Pixels dragged with the middle button. A press that never crosses this
+    // threshold counts as a click and snaps the view one 45 degree step.
+    let middleDragDistance = 0;
     let lastMiddleX = 0;
     let lastMiddleY = 0;
     let targetElevation = 0.785; // 45 degrees
@@ -426,10 +469,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
       if (isMiddleDragging) {
+        // Drag past the autoscroll threshold and the browser starts panning the
+        // page under the cursor, which both fights the drag and eats the
+        // mousemove stream. Swallowing it keeps the rotate responsive.
+        e.preventDefault();
+
         const dx = e.clientX - lastMiddleX;
         const dy = e.clientY - lastMiddleY;
         lastMiddleX = e.clientX;
         lastMiddleY = e.clientY;
+        middleDragDistance += Math.abs(dx) + Math.abs(dy);
 
         if (Math.abs(dx) > 0) {
           if (onOrbitCamera) {
@@ -450,8 +499,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (e.button === 1) {
         e.preventDefault();
         isMiddleDragging = true;
+        middleDragDistance = 0;
         lastMiddleX = e.clientX;
         lastMiddleY = e.clientY;
+        // Listen on the window, not the canvas: dragging past the edge of the
+        // viewport is normal, and losing the drag there feels broken.
+        window.addEventListener('mousemove', handleWindowDragMove);
+        window.addEventListener('mouseup', handleWindowDragEnd);
         return;
       }
 
@@ -487,12 +541,28 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     const handleMouseUp = (e: MouseEvent) => {
       if (e.button === 1) {
+        // A middle click with no drag reads as "turn the view one notch",
+        // which is the gesture people expect when they have no middle drag.
+        if (middleDragDistance < 4) onRotateCamera?.(e.shiftKey ? -1 : 1);
         isMiddleDragging = false;
+        middleDragDistance = 0;
       }
       isMouseDown = false;
       miningBlockCoords = null;
       miningProgress = 0;
       crackMesh.visible = false;
+    };
+
+    // Drag listeners live on the window for the duration of a middle drag only
+    const handleWindowDragMove = (e: MouseEvent) => {
+      if (!isMiddleDragging) return;
+      handleMouseMove(e);
+    };
+    const handleWindowDragEnd = (e: MouseEvent) => {
+      if (e.button !== 1) return;
+      window.removeEventListener('mousemove', handleWindowDragMove);
+      window.removeEventListener('mouseup', handleWindowDragEnd);
+      handleMouseUp(e);
     };
 
     const handleWheel = (e: WheelEvent) => {
@@ -514,6 +584,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
     canvasElem.addEventListener('wheel', handleWheel, { passive: false });
     canvasElem.addEventListener('contextmenu', handleContextMenu);
+    // Firefox raises auxclick for the middle button after the drag
+    canvasElem.addEventListener('auxclick', e => e.preventDefault());
+    canvasElem.addEventListener('dragstart', e => e.preventDefault());
 
     // ==========================================
     // ACTION HANDLERS
@@ -667,10 +740,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           // NPC interaction dialogue
           character.triggerInteract();
           targetFacingAngle = Math.atan2(clickedMob.x - playerPos.x, clickedMob.z - playerPos.z);
-          const talk = mobManager.npcDialogue(clickedMob, playerName);
           sound.playItemCollect();
-          addFloatingText(talk.line, clickedMob.x, clickedMob.y + 2.2, clickedMob.z, '#7dd3fc');
-          onNpcDialogue?.(talk);
+          sayLine(clickedMob, true);
           return;
         }
       }
@@ -713,10 +784,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (nearbyNpc) {
         targetFacingAngle = Math.atan2(nearbyNpc.x - playerPos.x, nearbyNpc.z - playerPos.z);
         character.triggerInteract();
-        const talk = mobManager.npcDialogue(nearbyNpc, playerName);
         sound.playItemCollect();
-        addFloatingText(talk.line, nearbyNpc.x, nearbyNpc.y + 2.2, nearbyNpc.z, '#7dd3fc');
-        onNpcDialogue?.(talk);
+        sayLine(nearbyNpc, false);
         return;
       }
 
@@ -733,10 +802,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               // Interact means "talk to". Swinging a weapon stays a separate,
               // deliberate action on the mining button.
               character.triggerInteract();
-              const talk = mobManager.npcDialogue(mob, playerName);
               sound.playItemCollect();
-              addFloatingText(talk.line, mob.x, mob.y + 2.2, mob.z, '#7dd3fc');
-              onNpcDialogue?.(talk);
+              sayLine(mob, false);
             }
             return;
           }
@@ -1481,6 +1548,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       window.removeEventListener('mouseup', handleMouseUp);
       canvasElem.removeEventListener('wheel', handleWheel);
       canvasElem.removeEventListener('contextmenu', handleContextMenu);
+      window.removeEventListener('mousemove', handleWindowDragMove);
+      window.removeEventListener('mouseup', handleWindowDragEnd);
       characterRef.current = null;
       decorations.dispose();
       world.dispose();

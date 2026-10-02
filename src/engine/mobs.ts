@@ -970,14 +970,22 @@ export class MobManager {
    * A stable name, role and line for an NPC, so repeated conversations with the
    * same villager feel like the same person rather than a random string.
    */
-  public npcDialogue(mob: MobEntity, playerName: string): { name: string; role: string; line: string } {
+  /**
+   * A line of conversation. Identity (name, role) is fixed by the mob id so the
+   * same villager always introduces itself the same way, while the line itself
+   * is mixed with `nonce` so pressing "continue" in the chat box keeps producing
+   * something new instead of repeating one string.
+   */
+  public npcDialogue(mob: MobEntity, playerName: string, nonce: number = 0): { name: string; role: string; line: string } {
     let hash = 0;
     for (let i = 0; i < mob.id.length; i++) hash = (hash * 31 + mob.id.charCodeAt(i)) >>> 0;
     const name = NPC_NAMES[hash % NPC_NAMES.length];
     const role = NPC_ROLES[(hash >>> 8) % NPC_ROLES.length];
     const pool = hash % 3 === 0 ? HINT_LINES : TRADER_LINES;
-    const line = pool[(hash >>> 16) % pool.length];
-    return { name, role, line: `Hello ${playerName}. ${line}` };
+    const lineHash = (hash ^ Math.imul(nonce + 1, 2654435761)) >>> 0;
+    const line = pool[lineHash % pool.length];
+    const opening = nonce === 0 ? `Hello ${playerName}. ` : '';
+    return { name, role, line: `${opening}${line}` };
   }
 
   /** Internal accessor used by the ground-height helper above. */

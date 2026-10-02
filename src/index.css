@@ -1355,3 +1355,62 @@
     bottom: 52px;
   }
 }
+
+/* --------------------------------------------------------------------------
+   NPC conversation
+   --------------------------------------------------------------------------
+   Bottom centre, above the hotbar and clear of both thumb clusters: the panel
+   is capped at 380px and sits at a fixed offset, so on a phone the stick (left)
+   and the action pad (right) both stay reachable while it is open.
+   -------------------------------------------------------------------------- */
+
+.px-chat-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 64px;
+  z-index: 38;
+  display: flex;
+  justify-content: center;
+  padding: 0 8px calc(8px + env(safe-area-inset-bottom));
+  pointer-events: none;
+}
+
+.px-chat {
+  width: 100%;
+  max-width: 380px;
+  pointer-events: auto;
+}
+
+.px-chat__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--px-panel-hi);
+  border-bottom: 1px solid var(--px-line);
+}
+
+.px-chat__body {
+  padding: 10px 12px;
+  background: var(--px-panel);
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+}
+
+.px-chat__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--px-panel-hi);
+  border-top: 1px solid var(--px-line);
+}
+
+/* Landscape phones: the panel has to clear the joystick band */
+@media (max-height: 480px) {
+  .px-chat-layer {
+    bottom: 44px;
+  }
+}

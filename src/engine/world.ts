@@ -85,6 +85,16 @@ const TERRAIN_MATERIALS: BlockType[] = [
   BlockType.CROPS_WHEAT, BlockType.CROPS_CARROT, BlockType.LEAVES, BlockType.FARMLAND
 ];
 
+/**
+ * Radius of the loaded chunk ring and how much of it may be built in a single
+ * frame. The ring is 7x7, so at three chunks per frame the world fills in over
+ * the first dozen frames after a boundary crossing instead of stalling one.
+ */
+const CHUNK_RING = 3;
+const CHUNKS_PER_FRAME = 1;
+/** Chunks whose Kenney art arrived late are repaired this many per frame. */
+const ART_REPAIRS_PER_FRAME = 2;
+
 export interface WorldStructure {
   id: string;
   name: string;
@@ -113,6 +123,23 @@ export class VoxelChunk {
   public isDirty: boolean = true;
   public surfaceHeight: Uint8Array;
   public surfaceBlock: Uint8Array;
+  /**
+   * Exposure bitmap, 1 = the cell has at least one open neighbour and therefore
+   * needs an instance. Terrain is static apart from the blocks the player
+   * changes, so this is computed once and then patched, instead of walking six
+   * neighbours for every cell on every rebuild.
+   */
+  public exposed: Uint8Array;
+  /** Columns whose surface cache is stale after a block change. */
+  private dirtyColumns: Set<number> = new Set();
+  /** Whole chunk needs a full exposure rescan (generation, or art repair). */
+  private exposureDirty: boolean = true;
+  /**
+   * Answers "is this local cell exposed" against the whole world, so a cell on
+   * a chunk border sees the neighbouring chunk's blocks rather than assuming the
+   * border is open sky.
+   */
+  private exposureSampler: ((lx: number, ly: number, lz: number) => boolean) | null = null;
   /** Set while some block type still waits for its Kenney model. */
   public artPending: boolean = false;
 
@@ -124,6 +151,7 @@ export class VoxelChunk {
     this.blocks = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT);
     this.surfaceHeight = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
     this.surfaceBlock = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+    this.exposed = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE * CHUNK_HEIGHT);
     this.group = new THREE.Group();
     this.group.name = `Chunk_${cx}_${cz}`;
   }
@@ -146,7 +174,115 @@ export class VoxelChunk {
     if (idx === -1) return false;
     this.blocks[idx] = type;
     this.isDirty = true;
+    this.markDirty(lx, ly, lz);
     return true;
+  }
+
+  /** Installed by VoxelWorld.generateChunk once the chunk knows where it is. */
+  public setExposureSampler(sampler: (lx: number, ly: number, lz: number) => boolean): void {
+    this.exposureSampler = sampler;
+  }
+
+  /**
+   * Invalidate the caches a single cell change can affect: its own surface
+   * column, and the exposure of it plus the six neighbours whose open faces it
+   * may have opened or closed.
+   */
+  private markDirty(lx: number, ly: number, lz: number): void {
+    this.dirtyColumns.add(lx + lz * CHUNK_SIZE);
+    const set = (ax: number, ay: number, az: number) => {
+      if (ax < 0 || ax >= CHUNK_SIZE || az < 0 || az >= CHUNK_SIZE) return;
+      if (ay < 0 || ay >= CHUNK_HEIGHT) return;
+      const idx = ax + az * CHUNK_SIZE + ay * CHUNK_SIZE * CHUNK_SIZE;
+      if (this.blocks[idx] === BlockType.AIR) {
+        this.exposed[idx] = 0;
+        return;
+      }
+      this.exposed[idx] = this.sampleExposure(ax, ay, az) ? 1 : 0;
+    };
+    set(lx, ly, lz);
+    set(lx - 1, ly, lz);
+    set(lx + 1, ly, lz);
+    set(lx, ly, lz - 1);
+    set(lx, ly, lz + 1);
+    set(lx, ly - 1, lz);
+    set(lx, ly + 1, lz);
+  }
+
+  /**
+   * A freshly streamed neighbour changes what counts as open along this chunk's
+   * border. The cells are resampled straight away rather than flagged: a stale
+   * zero here would mean geometry that is no longer drawn, which shows up as a
+   * hole in the world rather than as a wasted triangle.
+   */
+  public refreshBorderCells(): void {
+    for (let ly = 0; ly < CHUNK_HEIGHT; ly++) {
+      for (let l = 0; l < CHUNK_SIZE; l++) {
+        for (const [lx, lz] of [[0, l], [CHUNK_SIZE - 1, l], [l, 0], [l, CHUNK_SIZE - 1]] as Array<[number, number]>) {
+          const idx = lx + lz * CHUNK_SIZE + ly * CHUNK_SIZE * CHUNK_SIZE;
+          const b = this.blocks[idx] as BlockType;
+          this.exposed[idx] = b === BlockType.AIR || b === BlockType.WATER ? 0 : (this.sampleExposure(lx, ly, lz) ? 1 : 0);
+        }
+      }
+    }
+  }
+
+  /** Full rescan: only needed when the chunk is generated from scratch. */
+  public invalidateCaches(): void {
+    this.exposureDirty = true;
+    this.dirtyColumns.clear();
+  }
+
+  private sampleExposure(lx: number, ly: number, lz: number): boolean {
+    if (this.exposureSampler) return this.exposureSampler(lx, ly, lz);
+    return this.isLocallyExposed(lx, ly, lz);
+  }
+
+  private isLocallyExposed(lx: number, ly: number, lz: number): boolean {
+    const open = (ax: number, ay: number, az: number): boolean => {
+      if (ax < 0 || ax >= CHUNK_SIZE || az < 0 || az >= CHUNK_SIZE) return true; // chunk edge counts as open
+      if (ay < 0 || ay >= CHUNK_HEIGHT) return ay < 0; // below the world is solid, above is sky
+      const b = this.blocks[ax + az * CHUNK_SIZE + ay * CHUNK_SIZE * CHUNK_SIZE];
+      return b === BlockType.AIR || b === BlockType.WATER;
+    };
+    return open(lx - 1, ly, lz) || open(lx + 1, ly, lz) ||
+      open(lx, ly - 1, lz) || open(lx, ly + 1, lz) ||
+      open(lx, ly, lz - 1) || open(lx, ly, lz + 1);
+  }
+
+  private refreshExposure(): void {
+    if (!this.exposureDirty) return;
+    this.exposureDirty = false;
+    for (let ly = 0; ly < CHUNK_HEIGHT; ly++) {
+      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+          const idx = lx + lz * CHUNK_SIZE + ly * CHUNK_SIZE * CHUNK_SIZE;
+          const b = this.blocks[idx] as BlockType;
+          this.exposed[idx] = b === BlockType.AIR || b === BlockType.WATER ? 0 : (this.sampleExposure(lx, ly, lz) ? 1 : 0);
+        }
+      }
+    }
+  }
+
+  private refreshDirtyColumns(): void {
+    if (this.dirtyColumns.size === 0) return;
+    for (const sIdx of this.dirtyColumns) {
+      const lx = sIdx % CHUNK_SIZE;
+      const lz = (sIdx / CHUNK_SIZE) | 0;
+      let topY = 0;
+      let topBlock: BlockType = BlockType.AIR;
+      for (let ly = CHUNK_HEIGHT - 1; ly >= 0; ly--) {
+        const b = this.blocks[lx + lz * CHUNK_SIZE + ly * CHUNK_SIZE * CHUNK_SIZE] as BlockType;
+        if (b !== BlockType.AIR) {
+          topY = ly;
+          topBlock = b;
+          break;
+        }
+      }
+      this.surfaceHeight[sIdx] = topY;
+      this.surfaceBlock[sIdx] = topBlock;
+    }
+    this.dirtyColumns.clear();
   }
 
   public dispose(): void {
@@ -176,41 +312,31 @@ export class VoxelChunk {
     const worldStartX = this.cx * CHUNK_SIZE;
     const worldStartZ = this.cz * CHUNK_SIZE;
 
-    // Surface cache for instant minimap / pathfinding queries
-    for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const sIdx = lx + lz * CHUNK_SIZE;
-        let topY = 0;
-        let topBlock: BlockType = BlockType.AIR;
-        for (let ly = CHUNK_HEIGHT - 1; ly >= 0; ly--) {
-          const b = this.getLocalBlock(lx, ly, lz);
-          if (b !== BlockType.AIR) {
-            topY = ly;
-            topBlock = b;
-            break;
-          }
-        }
-        this.surfaceHeight[sIdx] = topY;
-        this.surfaceBlock[sIdx] = topBlock;
-      }
-    }
+    // Surface cache for instant minimap / pathfinding queries. Only the columns
+    // a block change touched need rescanning.
+    this.refreshDirtyColumns();
 
-    // Collect the exposed, non-occluded cells grouped by material
+    // Collect the exposed, non-occluded cells grouped by material. Exposure
+    // comes from the cached bitmap, and occlusion is looked up by a numeric
+    // key rather than a fresh template string per cell.
+    this.refreshExposure();
     const byType = new Map<BlockType, Array<[number, number, number]>>();
-    const occludedSize = occludedCoords ? occludedCoords.size : 0;
+    const occluded = world.getChunkOcclusion(this.cx, this.cz, occludedCoords);
 
     for (let ly = 0; ly < CHUNK_HEIGHT; ly++) {
       for (let lz = 0; lz < CHUNK_SIZE; lz++) {
+        const rowBase = lz * CHUNK_SIZE + ly * CHUNK_SIZE * CHUNK_SIZE;
         for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-          const b = this.getLocalBlock(lx, ly, lz);
+          const idx = rowBase + lx;
+          const b = this.blocks[idx] as BlockType;
           if (b === BlockType.AIR) continue;
 
           const wx = worldStartX + lx;
           const wz = worldStartZ + lz;
 
-          if (occludedSize > 0 && occludedCoords!.has(`${wx},${ly},${wz}`)) continue;
+          if (occluded !== null && occluded.has(lx + ly * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT)) continue;
 
-          if (b === BlockType.WATER || world.isExposed(wx, ly, wz)) {
+          if (b === BlockType.WATER || this.exposed[idx] === 1) {
             let list = byType.get(b);
             if (!list) {
               list = [];
@@ -242,7 +368,10 @@ export class VoxelChunk {
         mesh.receiveShadow = true;
         mesh.count = coords.length;
         mesh.renderOrder = art.renderOrder;
-        mesh.frustumCulled = false;
+        // Let three cull chunks that are off screen. With culling off, every
+        // chunk in the 7x7 ring submitted all of its instanced meshes on every
+        // frame, shadow pass included, which is the bulk of the draw calls.
+        mesh.frustumCulled = true;
         mesh.userData = { blockType, chunk: this };
         this.group.add(mesh);
         return mesh;
@@ -278,6 +407,10 @@ export class VoxelChunk {
       for (const mesh of meshes) {
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        // A real bounding sphere per instanced batch is what makes
+        // frustumCulled = true worth anything: the default sphere is the
+        // whole model, which would keep every chunk on screen.
+        mesh.computeBoundingSphere();
       }
 
       this.instancedMeshes.set(blockType, meshes);
@@ -309,6 +442,17 @@ export class VoxelWorld {
   public propColliders: AABB[] = [];
 
   public occludedCoords: Set<string> = new Set();
+  /**
+   * Chunk-local view of `occludedCoords`: chunk-local linear cell indices, so a
+   * chunk rebuild never builds a string per cell. Derived on demand and thrown
+   * away whenever the cutaway set changes.
+   */
+  private occludedByChunk: Map<string, Set<number>> = new Map();
+  private occludedSource: Set<string> | null = null;
+  /** Chunks still waiting to be generated, nearest ring cell first. */
+  private streamQueue: Map<string, [number, number]> = new Map();
+  /** Chunk keys whose Kenney art was missing and still need a rebuild. */
+  private artRepairQueue: string[] = [];
   public visionOpacity: number = 0.85;
   public isPlayerInsideBuilding: boolean = false;
 
@@ -380,6 +524,22 @@ export class VoxelWorld {
 
     this.explore(0, 0, 32);
     this.update(0, 0);
+    // Generating a world is an explicit action with a loading screen behind it,
+    // so the whole ring is built now rather than trickled in over the first
+    // second of play. The per-frame budget only applies to streaming while the
+    // player is already running around.
+    this.fillStreamQueue();
+  }
+
+  /** Build every queued chunk now, ignoring the per-frame budget. */
+  public fillStreamQueue(): void {
+    this.streamQueue.forEach(([cx, cz], key) => {
+      this.streamQueue.delete(key);
+      if (this.chunks.has(key)) return;
+      const chunk = this.generateChunk(cx, cz);
+      this.group.add(chunk.group);
+      chunk.rebuild(this, this.occludedCoords);
+    });
   }
 
   public getChunkKey(cx: number, cz: number): string {
@@ -585,6 +745,39 @@ export class VoxelWorld {
     this.structures.push({ id: `${type}_${x}_${y}_${z}`, name, type, x, y, z });
   }
 
+  /**
+   * Numeric occluded-cell set for one chunk, derived from the global string set
+   * the first time that chunk rebuilds after a cutaway change.
+   */
+  public getChunkOcclusion(cx: number, cz: number, source: Set<string> | null): Set<number> | null {
+    if (!source || source.size === 0) return null;
+    if (this.occludedSource !== source) {
+      this.occludedByChunk.clear();
+      this.occludedSource = source;
+    }
+    const key = this.getChunkKey(cx, cz);
+    const cached = this.occludedByChunk.get(key);
+    if (cached) return cached;
+
+    const set = new Set<number>();
+    const worldStartX = cx * CHUNK_SIZE;
+    const worldStartZ = cz * CHUNK_SIZE;
+    for (const coord of source) {
+      const c1 = coord.indexOf(',');
+      const c2 = coord.indexOf(',', c1 + 1);
+      const wx = +coord.slice(0, c1);
+      const wy = +coord.slice(c1 + 1, c2);
+      const wz = +coord.slice(c2 + 1);
+      const lx = wx - worldStartX;
+      const lz = wz - worldStartZ;
+      if (lx < 0 || lx >= CHUNK_SIZE || lz < 0 || lz >= CHUNK_SIZE) continue;
+      if (wy < 0 || wy >= CHUNK_HEIGHT) continue;
+      set.add(lx + wy * CHUNK_SIZE + lz * CHUNK_SIZE * CHUNK_HEIGHT);
+    }
+    this.occludedByChunk.set(key, set);
+    return set;
+  }
+
   private rebuildChunk(cx: number, cz: number): void {
     const chunk = this.chunks.get(this.getChunkKey(cx, cz));
     if (chunk) chunk.rebuild(this, this.occludedCoords);
@@ -628,6 +821,10 @@ export class VoxelWorld {
     const startX = cx * CHUNK_SIZE;
     const startZ = cz * CHUNK_SIZE;
 
+    // Exposure is a world question, not a chunk one, so the chunk borrows the
+    // world's view of its own cells.
+    chunk.setExposureSampler((lx, ly, lz) => this.isExposed(startX + lx, ly, startZ + lz));
+
     this.terrain.generateChunkBlocks(startX, startZ, (lx, y, lz, type) => {
       chunk.setLocalBlock(lx, y, lz, type);
     });
@@ -656,6 +853,13 @@ export class VoxelWorld {
     }
 
     chunk.rebuild(this, this.occludedCoords);
+
+    // Only now that this chunk is filled can the border of each already-loaded
+    // neighbour be resampled: until then they would still see open sky where
+    // this chunk's blocks are about to be.
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as Array<[number, number]>) {
+      this.chunks.get(this.getChunkKey(cx + dx, cz + dz))?.refreshBorderCells();
+    }
     return chunk;
   }
 
@@ -764,26 +968,40 @@ export class VoxelWorld {
 
     const currentChunkX = Math.floor(playerX / CHUNK_SIZE);
     const currentChunkZ = Math.floor(playerZ / CHUNK_SIZE);
-    const R = 3;
+    const R = CHUNK_RING;
 
     if (currentChunkX !== this.lastPlayerChunkX || currentChunkZ !== this.lastPlayerChunkZ) {
       this.lastPlayerChunkX = currentChunkX;
       this.lastPlayerChunkZ = currentChunkZ;
 
-      const newChunks: VoxelChunk[] = [];
+      // Queue the ring and build it under a per-frame budget. Generating a
+      // chunk costs a few milliseconds, and doing the whole ring in the frame
+      // the player crossed a boundary is what used to drop frames while
+      // running. Missing chunks at the very edge of the ring are filled in on
+      // the frames that follow.
       for (let dx = -R; dx <= R; dx++) {
         for (let dz = -R; dz <= R; dz++) {
           const cx = currentChunkX + dx;
           const cz = currentChunkZ + dz;
-          if (!this.chunks.has(this.getChunkKey(cx, cz))) {
-            newChunks.push(this.generateChunk(cx, cz));
-          }
+          const key = this.getChunkKey(cx, cz);
+          if (this.chunks.has(key) || this.streamQueue.has(key)) continue;
+          this.streamQueue.set(key, [cx, cz]);
         }
       }
-      for (const chunk of newChunks) {
+      for (let i = 0; i < CHUNKS_PER_FRAME && this.streamQueue.size > 0; i++) {
+        const entry = this.streamQueue.entries().next().value as [string, [number, number]];
+        this.streamQueue.delete(entry[0]);
+        if (this.chunks.has(entry[0])) continue;
+        const chunk = this.generateChunk(entry[1][0], entry[1][1]);
         this.group.add(chunk.group);
         chunk.rebuild(this, this.occludedCoords);
       }
+
+      // Anything still queued outside the ring is dropped, so a fast sprint
+      // does not leave a trail of stale chunks waiting to be built.
+      this.streamQueue.forEach(([cx, cz], key) => {
+        if (Math.abs(cx - currentChunkX) > R || Math.abs(cz - currentChunkZ) > R) this.streamQueue.delete(key);
+      });
 
       const unloadDist = R + 2;
       this.chunks.forEach((chunk, key) => {
@@ -795,13 +1013,24 @@ export class VoxelWorld {
       });
     }
 
-    // Rebuild chunks that were waiting on Kenney art
-    this.chunks.forEach(chunk => {
-      if (chunk.artPending) {
-        const version = getArtVersion();
-        if (chunk.artVersion !== version) chunk.rebuild(this, this.occludedCoords);
-      }
-    });
+    // Rebuild chunks that were waiting on Kenney art. This used to repair every
+    // pending chunk in one frame, which meant that while the GLBs were still
+    // parsing, or if one of them never arrived, every single frame paid for a
+    // full pass over all 49 chunks. Repair is now round robin: at most
+    // ART_REPAIRS_PER_FRAME chunks per frame, oldest first.
+    const artVersion = getArtVersion();
+    if (this.artRepairQueue.length === 0) {
+      this.chunks.forEach((chunk, key) => {
+        if (chunk.artPending && chunk.artVersion !== artVersion) this.artRepairQueue.push(key);
+      });
+    } else {
+      const stillPending = this.artRepairQueue.filter(key => this.chunks.get(key)?.artPending);
+      if (stillPending.length !== this.artRepairQueue.length) this.artRepairQueue = stillPending;
+    }
+    for (let i = 0; i < ART_REPAIRS_PER_FRAME && this.artRepairQueue.length > 0; i++) {
+      const key = this.artRepairQueue.shift()!;
+      this.rebuildChunk(...(key.split(',').map(Number) as [number, number]));
+    }
 
     const now = performance.now();
     if (now - this.lastOcclusionCheck > 130) {
