@@ -10,6 +10,14 @@ interface WorldModalProps {
   onWorldRegenerated: () => void;
 }
 
+// Security helper to validate and clamp world seed input
+const sanitizeSeed = (inputVal: string): number => {
+  const parsed = parseInt(inputVal, 10);
+  if (isNaN(parsed)) return 1;
+  // Clamp seed to safe positive range [1, 999999]
+  return Math.max(1, Math.min(999999, Math.floor(Math.abs(parsed))));
+};
+
 const PRESETS = [
   {
     id: 'meadow' as const,
@@ -117,7 +125,9 @@ export const WorldModal: React.FC<WorldModalProps> = ({
               <input
                 type="number"
                 value={seed}
-                onChange={e => setSeed(parseInt(e.target.value) || 0)}
+                min={1}
+                max={999999}
+                onChange={e => setSeed(sanitizeSeed(e.target.value))}
                 className="pixel-box-slot flex-1 px-3 py-2 text-[10px] text-[#f5eedc] font-mono outline-none"
               />
               <button
