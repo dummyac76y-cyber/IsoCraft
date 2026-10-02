@@ -7,6 +7,7 @@ import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.j
  * Loads the extracted packs living in public/assets/kenney:
  *   - mini-forest      (trees, rocks, plants, tent, fence, archer, ...)
  *   - mini-characters  (12 rigged humanoid characters with idle/walk/... clips)
+ *   - mini-arena       (floor tiles, walls, columns, stairs, statue)
  *
  * Models are GLB with an external Textures/colormap.png resolved by GLTFLoader
  * relative to each .glb URL, so the extracted folder structure must be preserved.
@@ -17,7 +18,7 @@ import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.j
  * for the pixel-art look.
  */
 
-export type KenneyPack = 'mini-forest' | 'mini-characters';
+export type KenneyPack = 'mini-forest' | 'mini-characters' | 'mini-arena';
 
 const KENNEY_ROOT = '/assets/kenney';
 

@@ -8,6 +8,7 @@ import { BlockType, CharacterCustomization, Item, RaycastHit, GameMode, PlayerSt
 import { generateCrackTexture } from '../engine/textures';
 import { calculatePath, findAdjacentWalkableSpot, findGroundHeight, PathPoint } from '../engine/pathfinding';
 import { KenneyDecorationManager } from '../engine/kenneyDecorations';
+import { ArenaTerrainTiles } from '../engine/arenaTiles';
 
 interface GameCanvasProps {
   customization: CharacterCustomization;
@@ -122,7 +123,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     // --- Three.js Scene Setup ---
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x6eb5f0);
+    // Reused every frame by the day/night cycle (avoids per-frame Color churn)
+    const skyBackground = new THREE.Color(0x6eb5f0);
+    scene.background = skyBackground;
 
     // --- Isometric Orthographic Camera ---
     const aspect = container.clientWidth / container.clientHeight;
@@ -187,6 +190,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     scene.add(decorations.group);
     decorations.placeCamp(safeSpawn.x, safeSpawn.y, safeSpawn.z, world);
 
+    // --- Kenney "Mini Arena" terrain tile layer (GLB tiles capping the voxel terrain) ---
+    const arenaTiles = new ArenaTerrainTiles(1234);
+    scene.add(arenaTiles.group);
+    arenaTiles.placeArena(safeSpawn.x, safeSpawn.y, safeSpawn.z, world);
+
     // Dynamic Mob Spawner across Infinite Terrain
     let lastMobSpawnTime = 0;
     const updateInfiniteMobSpawning = (time: number) => {
@@ -250,9 +258,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     scene.add(moonLight);
     scene.add(moonLight.target);
 
-    // Point lights for torches
+    // Point lights for torches. Kept to a small pool: every extra light is
+    // evaluated per-fragment by ALL Lambert materials in the scene, which is
+    // a real GPU cost on low-end devices (the 8 nearest torches is plenty).
     const torchLights: THREE.PointLight[] = [];
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 8; i++) {
       const pl = new THREE.PointLight(0xff9933, 0, 16, 1.2);
       scene.add(pl);
       torchLights.push(pl);
@@ -370,6 +380,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let activePath: PathPoint[] | null = null;
     let currentWaypointIndex = 0;
     let markerPulseTime = 0;
+    let pathLineFrame = 0;
 
     const clearActivePath = () => {
       activePath = null;
@@ -389,7 +400,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const cameraFocusPos = new THREE.Vector3().copy(playerPos);
     const targetCamPos = new THREE.Vector3();
     const hitCenter = new THREE.Vector3();
-    const dayBackground = new THREE.Color();
+    const dayBackground = new THREE.Color(0x6eb5f0);
     const sunsetBackground = new THREE.Color(0xf67838);
     const nightBackground = new THREE.Color(0x0c152a);
     let lastCrackStage = 0;
@@ -817,6 +828,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let lastProcessedRespawn = respawnCountRef.current;
 
     let shadowFrame = 0;
+    let lightSortFrame = 0;
+    let lastLightSourceCount = -1;
+    let nearestLightsCache: Array<{ ls: (typeof world.lightSources)[number]; distSq: number }> | null = null;
     const animate = (time: number) => {
       animFrameId = requestAnimationFrame(animate);
 
@@ -855,6 +869,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Scatter Kenney Mini Forest props across freshly streamed chunks
       decorations.update(playerPos.x, playerPos.z, world, time);
+
+      // Cap freshly streamed / modified terrain with Kenney arena tiles
+      arenaTiles.update(playerPos.x, playerPos.z, world, time);
 
       // Update Zoom & Frustum
       const desiredFrustum = zoomLevelRef.current;
@@ -930,9 +947,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           isPathMoving = true;
           targetFacingAngle = Math.atan2(toX, toZ);
 
-          // Update remaining path line
-          const remainingWaypoints = [playerPos, ...activePath.slice(currentWaypointIndex)];
-          updatePathLineMesh(remainingWaypoints);
+          if (pathLineFrame % 3 === 0) {
+            // Update remaining path line (throttled: rebuilding the line's
+            // geometry every frame was needless GPU buffer churn)
+            const remainingWaypoints = [playerPos, ...activePath.slice(currentWaypointIndex)];
+            updatePathLineMesh(remainingWaypoints);
+          }
+          pathLineFrame++;
         }
       }
 
@@ -1155,7 +1176,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         hemiLight.color.setHex(0x90caff);
         hemiLight.groundColor.setHex(0x526645);
         hemiLight.intensity = 0.42;
-        scene.background = new THREE.Color(0x6eb5f0);
+        skyBackground.setHex(0x6eb5f0);
       } else if (cycle > 0.68 && cycle < 0.85) {
         // Sunset
         const t = (cycle - 0.68) / 0.17;
@@ -1169,7 +1190,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           hemiLight.color.setHex(0xff9966);
           hemiLight.groundColor.setHex(0x503340);
           hemiLight.intensity = 0.55;
-          scene.background = new THREE.Color(0x6eb5f0).lerp(new THREE.Color(0xf67838), subT);
+          scene.background = skyBackground.setHex(0x6eb5f0).lerp(sunsetBackground, subT);
         } else {
           const deepT = (t - 0.5) * 2.0;
           sunLight.intensity = THREE.MathUtils.lerp(0.85, 0.05, deepT);
@@ -1180,7 +1201,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           hemiLight.color.setHex(0x486ca0);
           hemiLight.groundColor.setHex(0x1a2438);
           hemiLight.intensity = 0.55;
-          scene.background = new THREE.Color(0xf67838).lerp(new THREE.Color(0x0c152a), deepT);
+          scene.background = skyBackground.copy(sunsetBackground).lerp(nightBackground, deepT);
         }
       } else if (cycle >= 0.85 || cycle < 0.15) {
         // Night
@@ -1192,7 +1213,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         hemiLight.color.setHex(0x486ca0);
         hemiLight.groundColor.setHex(0x1a2438);
         hemiLight.intensity = 0.55;
-        scene.background = new THREE.Color(0x0c152a);
+        skyBackground.copy(nightBackground);
       } else {
         // Sunrise
         const t = (cycle - 0.15) / 0.15;
@@ -1204,7 +1225,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         hemiLight.color.setHex(0x90caff);
         hemiLight.groundColor.setHex(0x526645);
         hemiLight.intensity = 0.42;
-        scene.background = new THREE.Color(0x0c152a).lerp(new THREE.Color(0x6eb5f0), t);
+        scene.background = skyBackground.copy(nightBackground).lerp(dayBackground, t);
       }
 
       // Only the active celestial light renders a shadow map: halves the
@@ -1230,13 +1251,23 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         playerLight.distance = 5;
       }
 
-      // Nearest torches
-      const nearestLights = [...world.lightSources]
-        .map(ls => ({
-          ls,
-          distSq: (ls.x + 0.5 - playerPos.x) ** 2 + (ls.y + 0.5 - playerPos.y) ** 2 + (ls.z + 0.5 - playerPos.z) ** 2
-        }))
-        .sort((a, b) => a.distSq - b.distSq);
+      // Nearest torches: re-sorted every few frames instead of every frame
+      // (the per-frame copy + map + sort of the light list was pure overhead)
+      lightSortFrame++;
+      if (
+        !nearestLightsCache ||
+        world.lightSources.length !== lastLightSourceCount ||
+        lightSortFrame % 4 === 0
+      ) {
+        lastLightSourceCount = world.lightSources.length;
+        nearestLightsCache = [...world.lightSources]
+          .map(ls => ({
+            ls,
+            distSq: (ls.x + 0.5 - playerPos.x) ** 2 + (ls.y + 0.5 - playerPos.y) ** 2 + (ls.z + 0.5 - playerPos.z) ** 2
+          }))
+          .sort((a, b) => a.distSq - b.distSq);
+      }
+      const nearestLights = nearestLightsCache;
 
       for (let i = 0; i < torchLights.length; i++) {
         const light = torchLights[i];
@@ -1253,9 +1284,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         }
       }
 
-      // Raycast for hover & continuous mining
-      raycaster.setFromCamera(mouseNDC, camera);
-      currentHit = world.raycast(raycaster);
+      // Raycast for hover & continuous mining (skipped until the mouse has
+      // actually moved over the canvas)
+      if (mouseNDC.x > -2) {
+        raycaster.setFromCamera(mouseNDC, camera);
+        currentHit = world.raycast(raycaster);
+      } else {
+        currentHit = null;
+      }
 
       if (currentHit) {
         hitCenter.set(currentHit.blockX + 0.5, currentHit.blockY + 0.5, currentHit.blockZ + 0.5);
@@ -1447,6 +1483,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       canvasElem.removeEventListener('wheel', handleWheel);
       canvasElem.removeEventListener('contextmenu', handleContextMenu);
       characterRef.current = null;
+      arenaTiles.dispose();
       decorations.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {

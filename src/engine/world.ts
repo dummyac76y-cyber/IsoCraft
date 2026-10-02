@@ -429,6 +429,17 @@ export function getBlockNaturalTint(blockType: BlockType, wx: number, wy: number
 }
 
 /**
+ * True when a neighbouring cell does not occlude faces (air, transparent or
+ * non-solid decoration). Module-level so isExposed stays allocation-free.
+ */
+function isNeighborOpen(nb: BlockType): boolean {
+  if (nb === BlockType.AIR) return true;
+  const def = BLOCK_DEFS[nb];
+  if (!def) return true;
+  return !!def.isTransparent || !def.isSolid;
+}
+
+/**
  * Single Chunk in the Infinite Voxel World
  */
 export class VoxelChunk {
@@ -522,8 +533,14 @@ export class VoxelChunk {
           const wy = ly;
           const wz = worldStartZ + lz;
 
-          // Check if this block should be cut away by dynamic occlusion
-          if (occludedCoords && occludedCoords.has(`${wx},${wy},${wz}`)) {
+          // Check if this block should be cut away by dynamic occlusion.
+          // Size guard first: in open terrain the set is usually empty, so
+          // this skips thousands of string allocations per rebuild.
+          if (
+            occludedCoords &&
+            occludedCoords.size > 0 &&
+            occludedCoords.has(`${wx},${wy},${wz}`)
+          ) {
             continue; // Cut away obstructive wall tile!
           }
 
@@ -639,6 +656,12 @@ export class VoxelWorld {
   private lastPlayerChunkX: number = NaN;
   private lastPlayerChunkZ: number = NaN;
   private lastOcclusionCheck: number = 0;
+  // Bumped on every block change / realm regen so the terrain tile layer can
+  // refresh without polling every chunk every frame
+  public surfaceVersion: number = 0;
+  // Throttle for the minimap explore sweep (radius 32 >> this threshold)
+  private lastExploreX: number = 0;
+  private lastExploreZ: number = 0;
 
   constructor(seed: number = 42, preset: 'meadow' | 'canyon' | 'autumn' | 'mountain' | 'village' = 'meadow') {
     this.seed = seed;
@@ -657,6 +680,9 @@ export class VoxelWorld {
     this.occludedCoords.clear();
     this.structures = [];
     this.exploredChunks.clear();
+    this.surfaceVersion++;
+    this.lastExploreX = 0;
+    this.lastExploreZ = 0;
 
     // Dispose all active chunks
     this.chunks.forEach(chunk => {
@@ -749,32 +775,33 @@ export class VoxelWorld {
   public getBlock(x: number, y: number, z: number): BlockType {
     if (y < 0 || y >= CHUNK_HEIGHT) return BlockType.AIR;
 
-    // 1. Check user modification map first
-    const key = this.getBlockKey(x, y, z);
-    if (this.modifiedBlocks.has(key)) {
-      return this.modifiedBlocks.get(key)!;
-    }
-
-    // 2. Check loaded chunk
     const cx = Math.floor(x / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
-    const chunkKey = this.getChunkKey(cx, cz);
-
-    let chunk = this.chunks.get(chunkKey);
-    if (!chunk) {
-      // Chunk not loaded yet: generate on-the-fly procedurally
-      chunk = this.generateChunk(cx, cz);
-      // NOTE: NEVER call chunk.rebuild() inside getBlock to prevent recursion!
-    }
+    const chunk = this.chunks.get(this.getChunkKey(cx, cz));
 
     const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
     const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    return chunk.getLocalBlock(lx, y, lz);
+
+    // 1. Loaded chunk data already contains every stored modification
+    //    (setBlock writes through, generateChunk replays them), so the hot
+    //    path skips the string-keyed modification lookup entirely.
+    if (chunk) {
+      return chunk.getLocalBlock(lx, y, lz);
+    }
+
+    // 2. Chunk not loaded: honour stored modifications, else generate on-the-fly
+    const mod = this.modifiedBlocks.get(this.getBlockKey(x, y, z));
+    if (mod !== undefined) return mod;
+
+    const fresh = this.generateChunk(cx, cz);
+    // NOTE: NEVER call chunk.rebuild() inside getBlock to prevent recursion!
+    return fresh.getLocalBlock(lx, y, lz);
   }
 
   public setBlock(x: number, y: number, z: number, type: BlockType): boolean {
     if (y < 0 || y >= CHUNK_HEIGHT) return false;
 
+    this.surfaceVersion++;
     const key = this.getBlockKey(x, y, z);
     this.modifiedBlocks.set(key, type);
 
@@ -817,65 +844,74 @@ export class VoxelWorld {
 
   public isSolid(x: number, y: number, z: number): boolean {
     if (y < 0 || y >= CHUNK_HEIGHT) return false;
-    const key = this.getBlockKey(x, y, z);
-    if (this.modifiedBlocks.has(key)) {
-      const mb = this.modifiedBlocks.get(key)!;
-      return mb !== BlockType.AIR && (BLOCK_DEFS[mb]?.isSolid ?? false);
-    }
 
     const cx = Math.floor(x / CHUNK_SIZE);
     const cz = Math.floor(z / CHUNK_SIZE);
     const chunk = this.chunks.get(this.getChunkKey(cx, cz));
-    if (!chunk) {
-      const b = this.getBlock(x, y, z);
-      return b !== BlockType.AIR && (BLOCK_DEFS[b]?.isSolid ?? false);
-    }
 
-    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-    const b = chunk.getLocalBlock(lx, y, lz);
+    let b: BlockType;
+    if (chunk) {
+      // Chunk data already includes stored modifications (see getBlock), so
+      // no string-keyed map lookup is needed on this hot path
+      const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+      const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+      b = chunk.getLocalBlock(lx, y, lz);
+    } else {
+      b = this.getBlock(x, y, z);
+    }
     return b !== BlockType.AIR && (BLOCK_DEFS[b]?.isSolid ?? false);
   }
 
   public isExposed(x: number, y: number, z: number): boolean {
-    const neighbors = [
-      [x + 1, y, z],
-      [x - 1, y, z],
-      [x, y + 1, z],
-      [x, y - 1, z],
-      [x, y, z + 1],
-      [x, y, z - 1]
-    ];
-    for (const [nx, ny, nz] of neighbors) {
-      if (ny < 0 || ny >= CHUNK_HEIGHT) return true;
+    // Allocation-free neighbour scan. The previous version built an array of
+    // tuples plus a string-keyed map lookup for every neighbour, which
+    // dominated chunk rebuild cost (tens of thousands of strings per rebuild).
+    const cx = Math.floor(x / CHUNK_SIZE);
+    const cz = Math.floor(z / CHUNK_SIZE);
+    const chunk = this.chunks.get(this.getChunkKey(cx, cz));
+    if (!chunk) return true; // ungenerated area counts as open air
 
-      // 1. Check modified blocks
-      const key = this.getBlockKey(nx, ny, nz);
-      if (this.modifiedBlocks.has(key)) {
-        const mb = this.modifiedBlocks.get(key)!;
-        if (mb === BlockType.AIR || BLOCK_DEFS[mb]?.isTransparent || !BLOCK_DEFS[mb]?.isSolid) {
-          return true;
-        }
-        continue;
-      }
+    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
 
-      // 2. Direct chunk check - CRITICAL: never call getBlock to avoid recursive chunk generation!
-      const ncx = Math.floor(nx / CHUNK_SIZE);
-      const ncz = Math.floor(nz / CHUNK_SIZE);
-      const chunk = this.chunks.get(this.getChunkKey(ncx, ncz));
-      if (!chunk) {
-        // Neighbor chunk isn't loaded; consider boundary exposed to air
-        return true;
-      }
+    // Vertical neighbours: chunks span the full world height, so they always
+    // live in this chunk; out-of-range y resolves to AIR => exposed.
+    if (isNeighborOpen(chunk.getLocalBlock(lx, y + 1, lz))) return true;
+    if (isNeighborOpen(chunk.getLocalBlock(lx, y - 1, lz))) return true;
 
+    // Horizontal: fast in-chunk path, cross-chunk lookup only at chunk edges
+    if (lx > 0) {
+      if (isNeighborOpen(chunk.getLocalBlock(lx - 1, y, lz))) return true;
+    } else if (this.isNeighborOpenAcrossChunks(x - 1, y, z)) return true;
+
+    if (lx < CHUNK_SIZE - 1) {
+      if (isNeighborOpen(chunk.getLocalBlock(lx + 1, y, lz))) return true;
+    } else if (this.isNeighborOpenAcrossChunks(x + 1, y, z)) return true;
+
+    if (lz > 0) {
+      if (isNeighborOpen(chunk.getLocalBlock(lx, y, lz - 1))) return true;
+    } else if (this.isNeighborOpenAcrossChunks(x, y, z - 1)) return true;
+
+    if (lz < CHUNK_SIZE - 1) {
+      if (isNeighborOpen(chunk.getLocalBlock(lx, y, lz + 1))) return true;
+    } else if (this.isNeighborOpenAcrossChunks(x, y, z + 1)) return true;
+
+    return false;
+  }
+
+  /** Neighbour test for cells that may live in a not-yet-loaded chunk. */
+  private isNeighborOpenAcrossChunks(nx: number, ny: number, nz: number): boolean {
+    const nchunk = this.chunks.get(
+      this.getChunkKey(Math.floor(nx / CHUNK_SIZE), Math.floor(nz / CHUNK_SIZE))
+    );
+    if (nchunk) {
       const lx = ((nx % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
       const lz = ((nz % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
-      const nb = chunk.getLocalBlock(lx, ny, lz);
-      if (nb === BlockType.AIR || BLOCK_DEFS[nb]?.isTransparent || !BLOCK_DEFS[nb]?.isSolid) {
-        return true;
-      }
+      return isNeighborOpen(nchunk.getLocalBlock(lx, ny, lz));
     }
-    return false;
+    // Unloaded boundary: stored modifications still count, otherwise open air
+    const mod = this.modifiedBlocks.get(this.getBlockKey(nx, ny, nz));
+    return mod === undefined ? true : isNeighborOpen(mod);
   }
 
   /**
@@ -986,15 +1022,22 @@ export class VoxelWorld {
       this.generateShrineInChunk(chunk, startX, startZ, heightMap);
     }
 
-    // Apply any previously stored user modifications in this chunk
-    for (let ly = 0; ly < CHUNK_HEIGHT; ly++) {
-      for (let lz = 0; lz < CHUNK_SIZE; lz++) {
-        for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-          const key = this.getBlockKey(startX + lx, ly, startZ + lz);
-          if (this.modifiedBlocks.has(key)) {
-            chunk.setLocalBlock(lx, ly, lz, this.modifiedBlocks.get(key)!);
-          }
-        }
+    // Apply any previously stored user modifications in this chunk.
+    // Iterating the (sparse) modification map beats probing all 16k local
+    // cells with string keys on every chunk generation.
+    if (this.modifiedBlocks.size > 0) {
+      const endX = startX + CHUNK_SIZE - 1;
+      const endZ = startZ + CHUNK_SIZE - 1;
+      for (const [key, type] of this.modifiedBlocks) {
+        const c1 = key.indexOf(',');
+        const c2 = key.indexOf(',', c1 + 1);
+        if (c1 < 0 || c2 < 0) continue;
+        const mx = +key.slice(0, c1);
+        const my = +key.slice(c1 + 1, c2);
+        const mz = +key.slice(c2 + 1);
+        if (mx < startX || mx > endX || mz < startZ || mz > endZ) continue;
+        if (my < 0 || my >= CHUNK_HEIGHT) continue;
+        chunk.setLocalBlock(mx - startX, my, mz - startZ, type);
       }
     }
 
@@ -1168,8 +1211,17 @@ export class VoxelWorld {
    */
   public update(playerX: number, playerZ: number, playerY: number = 8, cameraAngle: number = Math.PI / 4, visionSetting: number = 0.85) {
     this.visionOpacity = visionSetting;
-    // Always mark current radius as explored for the infinite world minimap
-    this.explore(playerX, playerZ, 32);
+    // Mark the minimap radius as explored, but only after the player moved a
+    // few blocks: re-walking the same 65x65 grid every frame was thousands of
+    // wasted Set/string operations per frame.
+    if (
+      Math.abs(playerX - this.lastExploreX) >= 6 ||
+      Math.abs(playerZ - this.lastExploreZ) >= 6
+    ) {
+      this.lastExploreX = playerX;
+      this.lastExploreZ = playerZ;
+      this.explore(playerX, playerZ, 32);
+    }
 
     const currentChunkX = Math.floor(playerX / CHUNK_SIZE);
     const currentChunkZ = Math.floor(playerZ / CHUNK_SIZE);
@@ -1328,10 +1380,29 @@ export class VoxelWorld {
     }
 
     if (changed) {
+      const previous = this.occludedCoords;
       this.occludedCoords = newOccluded;
-      // Rebuild meshes of loaded chunks with the new occlusion cutaway
-      this.chunks.forEach(chunk => {
-        chunk.rebuild(this, this.occludedCoords);
+
+      // Rebuild ONLY the chunks that gained or lost a cutaway tile. Rebuilding
+      // every loaded chunk here caused periodic multi-frame hitches while
+      // walking near cliffs and buildings.
+      const dirtyChunks = new Set<string>();
+      const markDirty = (coordKey: string) => {
+        const c1 = coordKey.indexOf(',');
+        const c2 = coordKey.indexOf(',', c1 + 1);
+        if (c1 < 0 || c2 < 0) return;
+        const bx = +coordKey.slice(0, c1);
+        const bz = +coordKey.slice(c2 + 1);
+        dirtyChunks.add(this.getChunkKey(Math.floor(bx / CHUNK_SIZE), Math.floor(bz / CHUNK_SIZE)));
+      };
+      for (const k of newOccluded) {
+        if (!previous.has(k)) markDirty(k);
+      }
+      for (const k of previous) {
+        if (!newOccluded.has(k)) markDirty(k);
+      }
+      dirtyChunks.forEach(key => {
+        this.chunks.get(key)?.rebuild(this, this.occludedCoords);
       });
     }
   }
@@ -1369,53 +1440,95 @@ export class VoxelWorld {
     return true;
   }
 
-  // Raycasting against all loaded chunks
-  public raycast(raycaster: THREE.Raycaster): RaycastHit | null {
-    const meshes: THREE.InstancedMesh[] = [];
-    this.chunks.forEach(chunk => {
-      chunk.instancedMeshes.forEach((mesh, blockType) => {
-        if (blockType !== BlockType.WATER) {
-          meshes.push(mesh);
-        }
-      });
-    });
+  // Raycasting against block data (Amanatides & Woo voxel traversal).
+  // Intersecting every InstancedMesh meant tens of thousands of per-instance
+  // ray/box tests each frame; marching the grid costs a few hundred steps.
+  public raycast(raycaster: THREE.Raycaster): RaycastHit | null {    const { origin, direction } = raycaster.ray;
+    const dirLenSq = direction.lengthSq();
+    if (dirLenSq < 1e-10) return null;
 
-    if (meshes.length === 0) return null;
+    // Normalise defensively: MAX_DIST below is in world units
+    const invLen = 1 / Math.sqrt(dirLenSq);
+    const dx = direction.x * invLen;
+    const dy = direction.y * invLen;
+    const dz = direction.z * invLen;
 
-    const intersects = raycaster.intersectObjects(meshes, false);
-    if (intersects.length === 0) return null;
+    let ix = Math.floor(origin.x);
+    let iy = Math.floor(origin.y);
+    let iz = Math.floor(origin.z);
 
-    const hit = intersects[0];
-    const mesh = hit.object as THREE.InstancedMesh;
-    const instanceId = hit.instanceId;
-    if (instanceId === undefined) return null;
+    const stepX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+    const stepY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
+    const stepZ = dz > 0 ? 1 : dz < 0 ? -1 : 0;
 
-    const blockType = mesh.userData.blockType as BlockType;
-    const chunk = mesh.userData.chunk as VoxelChunk;
-    if (!chunk) return null;
+    const tDeltaX = stepX !== 0 ? Math.abs(1 / dx) : Infinity;
+    const tDeltaY = stepY !== 0 ? Math.abs(1 / dy) : Infinity;
+    const tDeltaZ = stepZ !== 0 ? Math.abs(1 / dz) : Infinity;
 
-    const coordsList = chunk.instanceCoords.get(blockType);
-    if (!coordsList || instanceId >= coordsList.length) return null;
+    let tMaxX = stepX > 0 ? (ix + 1 - origin.x) / dx : stepX < 0 ? (ix - origin.x) / dx : Infinity;
+    let tMaxY = stepY > 0 ? (iy + 1 - origin.y) / dy : stepY < 0 ? (iy - origin.y) / dy : Infinity;
+    let tMaxZ = stepZ > 0 ? (iz + 1 - origin.z) / dz : stepZ < 0 ? (iz - origin.z) / dz : Infinity;
 
-    const [bx, by, bz] = coordsList[instanceId];
+    // Face normal of the most recent axis step (points back towards the ray)
+    let nx = 0;
+    let ny = 0;
+    let nz = 0;
 
-    let nx = 0, ny = 1, nz = 0;
-    if (hit.normal) {
-      nx = Math.round(hit.normal.x);
-      ny = Math.round(hit.normal.y);
-      nz = Math.round(hit.normal.z);
+    const MAX_DIST = 160; // camera far plane is 300; visible world is well inside
+    let travelled = 0;
+
+    for (let i = 0; i < 512 && travelled <= MAX_DIST; i++) {
+      if (tMaxX <= tMaxY && tMaxX <= tMaxZ) {
+        ix += stepX;
+        travelled = tMaxX;
+        tMaxX += tDeltaX;
+        nx = -stepX; ny = 0; nz = 0;
+      } else if (tMaxY <= tMaxZ) {
+        iy += stepY;
+        travelled = tMaxY;
+        tMaxY += tDeltaY;
+        nx = 0; ny = -stepY; nz = 0;
+      } else {
+        iz += stepZ;
+        travelled = tMaxZ;
+        tMaxZ += tDeltaZ;
+        nx = 0; ny = 0; nz = -stepZ;
+      }
+
+      if (travelled > MAX_DIST) break;
+      if (iy < 0 || iy >= CHUNK_HEIGHT) continue;
+
+      const blockType = this.peekBlock(ix, iy, iz);
+      if (blockType === BlockType.AIR || blockType === BlockType.WATER) continue;
+
+      return {
+        blockX: ix,
+        blockY: iy,
+        blockZ: iz,
+        faceNormal: { x: nx, y: ny, z: nz },
+        placeX: ix + nx,
+        placeY: iy + ny,
+        placeZ: iz + nz,
+        blockType
+      };
     }
 
-    return {
-      blockX: bx,
-      blockY: by,
-      blockZ: bz,
-      faceNormal: { x: nx, y: ny, z: nz },
-      placeX: bx + nx,
-      placeY: by + ny,
-      placeZ: bz + nz,
-      blockType
-    };
+    return null;
+  }
+
+  /**
+   * Non-generating block read for raycasts: unloaded chunks count as air so
+   * a hover ray never triggers chunk generation the way getBlock does.
+   */
+  private peekBlock(x: number, y: number, z: number): BlockType {
+    if (y < 0 || y >= CHUNK_HEIGHT) return BlockType.AIR;
+    const chunk = this.chunks.get(
+      this.getChunkKey(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE))
+    );
+    if (!chunk) return BlockType.AIR;
+    const lx = ((x % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    const lz = ((z % CHUNK_SIZE) + CHUNK_SIZE) % CHUNK_SIZE;
+    return chunk.getLocalBlock(lx, y, lz);
   }
 
   // Force rebuild all loaded chunks
