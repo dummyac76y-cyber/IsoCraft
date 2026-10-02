@@ -7,6 +7,7 @@ import { sound } from '../engine/sound';
 import { BlockType, CharacterCustomization, Item, RaycastHit, GameMode, PlayerStats, MobEntity } from '../types';
 import { generateCrackTexture } from '../engine/textures';
 import { calculatePath, findAdjacentWalkableSpot, findGroundHeight, PathPoint } from '../engine/pathfinding';
+import { KenneyDecorationManager } from '../engine/kenneyDecorations';
 
 interface GameCanvasProps {
   customization: CharacterCustomization;
@@ -173,6 +174,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     mobManager.spawnMob('slime', safeSpawn.x - 9, safeSpawn.y, safeSpawn.z + 7);
     mobManager.spawnMob('skeleton', safeSpawn.x + 14, safeSpawn.y, safeSpawn.z + 14);
     mobManager.spawnMob('goblin', safeSpawn.x - 12, safeSpawn.y, safeSpawn.z - 8);
+    // Extra villagers so the Kenney Mini Characters pack shows real variety
+    mobManager.spawnMob('villager', safeSpawn.x - 4, safeSpawn.y, safeSpawn.z + 5);
+    mobManager.spawnMob('villager', safeSpawn.x + 7, safeSpawn.y, safeSpawn.z + 2);
+
+    // --- Kenney "Mini Forest" Prop Layer (GLB assets scattered on terrain) ---
+    const decorations = new KenneyDecorationManager(1234);
+    scene.add(decorations.group);
+    decorations.placeCamp(safeSpawn.x, safeSpawn.y, safeSpawn.z, world);
 
     // Dynamic Mob Spawner across Infinite Terrain
     let lastMobSpawnTime = 0;
@@ -851,6 +860,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       world.update(playerPos.x, playerPos.z, playerPos.y, cameraAngleRef.current, blockOpacityRef.current);
       updateInfiniteMobSpawning(time);
 
+      // Scatter Kenney Mini Forest props across freshly streamed chunks
+      decorations.update(playerPos.x, playerPos.z, world, time);
+
       // Update Zoom & Frustum
       const desiredFrustum = zoomLevelRef.current;
       if (Math.abs(camera.top - desiredFrustum / 2) > 0.05) {
@@ -1429,6 +1441,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       canvasElem.removeEventListener('wheel', handleWheel);
       canvasElem.removeEventListener('contextmenu', handleContextMenu);
       characterRef.current = null;
+      decorations.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
