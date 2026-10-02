@@ -124,7 +124,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   dayTimeRef.current = dayTime;
 
   const cameraAngleRef = useRef<number>(cameraAngle);
-  cameraAngleRef.current = cameraAngle;
+  cameraAngleRef.current = Number.isFinite(cameraAngle) ? cameraAngle : 0;
 
   const zoomLevelRef = useRef<number>(zoomLevel);
   zoomLevelRef.current = zoomLevel;

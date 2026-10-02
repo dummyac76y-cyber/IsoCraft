@@ -482,7 +482,9 @@ export class CharacterModel {
       return;
     }
 
-    this.group.rotation.y = facingAngle;
+    // One non-finite angle poisons the matrix and three culls the body for
+    // good, with the rest of the world still drawing. Cheap to refuse.
+    this.group.rotation.y = Number.isFinite(facingAngle) ? facingAngle : 0;
 
     // Floating RPG beacon animation
     if (this.beaconGroup.visible) {
