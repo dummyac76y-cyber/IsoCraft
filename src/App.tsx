@@ -10,6 +10,24 @@ import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, Bloc
 import { VoxelWorld } from './engine/world';
 import { sound } from './engine/sound';
 
+// Security Helper: Safely access localStorage without throwing SecurityError or QuotaExceededError in restricted browser contexts
+const safeGetItem = (key: string): string | null => {
+  try {
+    return localStorage.getItem(key);
+  } catch (err) {
+    // Handles restricted security contexts (e.g., sandboxed iFrames, disabled cookies)
+    return null;
+  }
+};
+
+const safeSetItem = (key: string, value: string): void => {
+  try {
+    localStorage.setItem(key, value);
+  } catch (err) {
+    // Silently ignore storage quota or security errors
+  }
+};
+
 export default function App() {
   // --- Character Customization State ---
   const [customization, setCustomization] = useState<CharacterCustomization>({
@@ -106,7 +124,7 @@ export default function App() {
 
   // Auto-Rotate Settings
   const [autoRotateCamera, setAutoRotateCamera] = useState<boolean>(() => {
-    const saved = localStorage.getItem('blocky_auto_rotate_camera');
+    const saved = safeGetItem('blocky_auto_rotate_camera');
     return saved !== null ? saved === 'true' : false;
   });
 
@@ -115,7 +133,7 @@ export default function App() {
   const handleToggleAutoRotateCamera = () => {
     setAutoRotateCamera(prev => {
       const next = !prev;
-      localStorage.setItem('blocky_auto_rotate_camera', String(next));
+      safeSetItem('blocky_auto_rotate_camera', String(next));
       addFloatingText(next ? 'Auto-Rotate: ON' : 'Auto-Rotate: OFF', 0, 0, 0, next ? '#facc15' : '#a8a29e');
       return next;
     });
