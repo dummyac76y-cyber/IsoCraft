@@ -95,15 +95,6 @@ const CHUNKS_PER_FRAME = 1;
 /** Chunks whose Kenney art arrived late are repaired this many per frame. */
 const ART_REPAIRS_PER_FRAME = 2;
 
-export interface WorldStructure {
-  id: string;
-  name: string;
-  type: 'cottage' | 'shrine' | 'ruins' | 'watchtower' | 'camp';
-  x: number;
-  y: number;
-  z: number;
-}
-
 /**
  * Single chunk in the infinite voxel world.
  *
@@ -435,7 +426,6 @@ export class VoxelWorld {
   public modifiedBlocks: Map<string, BlockType> = new Map();
   public chestContents: Map<string, Item[]> = new Map();
   public lightSources: Array<{ x: number; y: number; z: number; color: number; intensity: number }> = [];
-  public structures: WorldStructure[] = [];
   public exploredChunks: Set<string> = new Set();
 
   /** Colliders contributed by the Kenney prop layer (trees, rocks, tents). */
@@ -507,7 +497,6 @@ export class VoxelWorld {
     this.chestContents.clear();
     this.lightSources = [];
     this.occludedCoords.clear();
-    this.structures = [];
     this.propColliders = [];
     this.exploredChunks.clear();
     this.surfaceVersion++;
@@ -728,9 +717,6 @@ export class VoxelWorld {
     chunk.setLocalBlock(lx, y, lz, type);
     chunk.rebuild(this, this.occludedCoords);
 
-    if (type === BlockType.AIR) {
-      this.structures = this.structures.filter(s => !(s.x === x && s.y === y && s.z === z));
-    }
 
     if (lx === 0) this.rebuildChunk(cx - 1, cz);
     if (lx === CHUNK_SIZE - 1) this.rebuildChunk(cx + 1, cz);
@@ -738,11 +724,6 @@ export class VoxelWorld {
     if (lz === CHUNK_SIZE - 1) this.rebuildChunk(cx, cz + 1);
 
     return true;
-  }
-
-  private registerStructure(type: WorldStructure['type'], name: string, x: number, y: number, z: number): void {
-    if (this.structures.some(s => s.x === x && s.y === y && s.z === z)) return;
-    this.structures.push({ id: `${type}_${x}_${y}_${z}`, name, type, x, y, z });
   }
 
   /**
@@ -829,11 +810,9 @@ export class VoxelWorld {
       chunk.setLocalBlock(lx, y, lz, type);
     });
 
-    // Deterministic landmarks: one ruin outpost and one shrine per ~5x5 chunk
-    // block, chosen from a stable hash so they never pop in on a later visit.
-    const score = (Math.imul(cx + 512, 374761393) ^ Math.imul(cz + 512, 668265263) ^ Math.imul(this.seed, 1274126177)) >>> 0;
-    if (score % 29 === 0) this.placeOutpost(chunk, startX, startZ, 'cottage');
-    else if (score % 41 === 0) this.placeOutpost(chunk, startX, startZ, 'shrine');
+    // No landmarks: the structures that used to be stamped here were assembled
+    // from blocks that no longer have real art behind them. Terrain, props and
+    // caves carry the world on their own until there is something worth placing.
 
     // Replay player edits recorded for this chunk
     if (this.modifiedBlocks.size > 0) {
@@ -861,90 +840,6 @@ export class VoxelWorld {
       this.chunks.get(this.getChunkKey(cx + dx, cz + dz))?.refreshBorderCells();
     }
     return chunk;
-  }
-
-  /**
-   * A walled outpost: a plank floor, cobble footing, stone brick walls with a
-   * doorway and windows, a crafting bench, a chest with loot and lanterns.
-   * Built on the terrain so it always sits flush with the new landform.
-   */
-  private placeOutpost(chunk: VoxelChunk, startX: number, startZ: number, kind: 'cottage' | 'shrine'): void {
-    const localX = 4;
-    const localZ = 4;
-    const w = kind === 'cottage' ? 6 : 5;
-    const d = kind === 'cottage' ? 6 : 5;
-    const h = kind === 'cottage' ? 4 : 3;
-
-    // Level the footprint against the terrain field so nothing floats.
-    let sum = 0;
-    for (let dx = 0; dx < w; dx++) {
-      for (let dz = 0; dz < d; dz++) {
-        sum += this.terrain.column(startX + localX + dx, startZ + localZ + dz).height;
-      }
-    }
-    const baseY = Math.max(4, Math.min(CHUNK_HEIGHT - h - 3, Math.round(sum / (w * d)) + 1));
-
-    // Plank floor on a cobble footing
-    for (let dx = 0; dx < w; dx++) {
-      for (let dz = 0; dz < d; dz++) {
-        chunk.setLocalBlock(localX + dx, baseY, localZ + dz, BlockType.STONE_BRICKS);
-        for (let fy = baseY - 1; fy >= 1; fy--) {
-          const b = chunk.getLocalBlock(localX + dx, fy, localZ + dz);
-          if (b === BlockType.AIR || b === BlockType.WATER) {
-            chunk.setLocalBlock(localX + dx, fy, localZ + dz, BlockType.COBBLESTONE);
-          } else break;
-        }
-      }
-    }
-
-    if (kind === 'cottage') {
-      for (let dy = 1; dy <= h; dy++) {
-        for (let dx = 0; dx < w; dx++) {
-          for (let dz = 0; dz < d; dz++) {
-            const edge = dx === 0 || dx === w - 1 || dz === 0 || dz === d - 1;
-            if (!edge) continue;
-            if (dx === 2 && dz === 0 && dy <= 2) continue; // doorway
-            if ((dx === 0 || dx === w - 1) && dz === 3 && dy === 2) {
-              chunk.setLocalBlock(localX + dx, baseY + dy, localZ + dz, BlockType.GLASS);
-              continue;
-            }
-            // Brick courses, capped with a cobble course
-            const b = dy === h ? BlockType.COBBLESTONE : (dy % 2 === 0 ? BlockType.BRICK : BlockType.STONE_BRICKS);
-            chunk.setLocalBlock(localX + dx, baseY + dy, localZ + dz, b);
-          }
-        }
-      }
-
-      // A glowing brazier in the hearth: ruby ore is the only emissive block
-      // left in the registry, so it stands in for the old lantern.
-      chunk.setLocalBlock(localX + 3, baseY + 1, localZ, BlockType.RUBY_ORE);
-      this.lightSources.push({
-        x: startX + localX + 3, y: baseY + 1, z: startZ + localZ,
-        color: 0xff6a4a, intensity: 2.2
-      });
-      // Overgrown corner planters
-      chunk.setLocalBlock(localX + 1, baseY + 1, localZ + 4, BlockType.LEAVES);
-      chunk.setLocalBlock(localX + 4, baseY + 1, localZ + 4, BlockType.FLOWER_YELLOW);
-      this.registerStructure('cottage', 'Ruin Cottage Outpost', startX + localX + 3, baseY, startZ + localZ + 3);
-    } else {
-      // Open-air shrine: four pillars around a ruby monolith, each capped
-      // with a gold course instead of the old lantern block.
-      const corners: Array<[number, number]> = [[0, 0], [w - 1, 0], [0, d - 1], [w - 1, d - 1]];
-      for (const [px, pz] of corners) {
-        chunk.setLocalBlock(localX + px, baseY + 1, localZ + pz, BlockType.STONE_BRICKS);
-        chunk.setLocalBlock(localX + px, baseY + 2, localZ + pz, BlockType.STONE_BRICKS);
-        chunk.setLocalBlock(localX + px, baseY + 3, localZ + pz, BlockType.GOLD_ORE);
-      }
-      const mx = localX + 2;
-      const mz = localZ + 2;
-      chunk.setLocalBlock(mx, baseY + 1, mz, BlockType.RUBY_ORE);
-      chunk.setLocalBlock(mx, baseY + 2, mz, BlockType.GOLD_ORE);
-      chunk.setLocalBlock(mx, baseY + 3, mz, BlockType.RUBY_ORE);
-      this.lightSources.push({
-        x: startX + mx, y: baseY + 3, z: startZ + mz, color: 0xff5588, intensity: 2.4
-      });
-      this.registerStructure('shrine', 'Ancient Runestone Shrine', startX + mx, baseY + 1, startZ + mz);
-    }
   }
 
   // -------------------------------------------------------------------------

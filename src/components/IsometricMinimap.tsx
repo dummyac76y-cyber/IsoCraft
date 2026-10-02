@@ -17,7 +17,6 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [zoomIndex, setZoomIndex] = useState<number>(1); // 0: Close (12 blocks), 1: Normal (18 blocks), 2: Far (26 blocks)
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
-  const [nearestStructure, setNearestStructure] = useState<{ name: string; dist: number } | null>(null);
   const [currentCoords, setCurrentCoords] = useState<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
   const [currentBiome, setCurrentBiome] = useState<string>('Sunlit Meadow');
 
@@ -202,42 +201,6 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
         }
       }
 
-      // Render Structures / POIs
-      let closest: { name: string; dist: number } | null = null;
-      let minDistance = 9999;
-
-      if (world.structures && world.structures.length > 0) {
-        for (const s of world.structures) {
-          const dx = s.x - playerX;
-          const dz = s.z - playerZ;
-          const dist = Math.hypot(dx, dz);
-
-          if (dist < minDistance) {
-            minDistance = dist;
-            closest = { name: s.name, dist: Math.round(dist) };
-          }
-
-          // Check if structure is within visible minimap range
-          if (dist <= radius + 4) {
-            // Isometric projection of structure
-            const rx = dx * cosA - dz * sinA;
-            const rz = dx * sinA + dz * cosA;
-            const sIsoX = Math.round(centerX + (rx - rz) * (tileW / 2));
-            const sIsoY = Math.round(centerY + (rx + rz) * (tileH / 2) - (s.y - playerY) * heightStep);
-
-            if (sIsoX >= 8 && sIsoX <= viewSize - 8 && sIsoY >= 8 && sIsoY <= viewSize - 8) {
-              drawStructurePixelBadge(ctx, sIsoX, sIsoY, s.type);
-            }
-          }
-        }
-      }
-
-      const near = closest && closest.dist <= 38 ? closest : null;
-      setNearestStructure(prev =>
-        prev === null && near === null ? prev :
-        prev && near && prev.name === near.name && prev.dist === near.dist ? prev : near
-      );
-
       // Render Player Beacon & Facing Chevron
       const beaconRadius = 4 + (Math.sin(pulseTime * 2.5) * 0.5 + 0.5) * 4;
       ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
@@ -349,16 +312,6 @@ export const IsometricMinimap: React.FC<IsometricMinimapProps> = ({
           </div>
 
           {/* Nearest structure proximity banner */}
-          {nearestStructure && (
-            <div
-              className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px]"
-              style={{ background: 'rgba(18,13,10,0.9)', border: '1px solid rgba(240,180,41,0.35)', color: 'var(--gold-soft)' }}
-            >
-              <span className="px-pip animate-pulse" aria-hidden />
-              <span>{nearestStructure.name} · {nearestStructure.dist}m</span>
-            </div>
-          )}
-
           {/* Coordinate readout */}
           <div className="px-coords pointer-events-none absolute inset-x-0 bottom-0 flex justify-between">
             <span>X {currentCoords.x}</span>
@@ -418,59 +371,6 @@ function getBlockIsometricColors(type: BlockType): { top: string; sideLeft: stri
     default:
       return { top: '#5e8248', sideLeft: '#486636', sideRight: '#354c27' };
   }
-}
-
-// 32-bit pixel-art icons for structures on the isometric minimap
-function drawStructurePixelBadge(ctx: CanvasRenderingContext2D, x: number, y: number, type: string) {
-  ctx.save();
-  ctx.translate(x, y - 6);
-
-  if (type === 'cottage') {
-    // 32-bit Cottage Icon (Wooden roof, stone walls, warm lantern window)
-    // Shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(-6, 4, 12, 3);
-    // Walls
-    ctx.fillStyle = '#7a7a84';
-    ctx.fillRect(-5, -1, 10, 5);
-    // Roof
-    ctx.fillStyle = '#b45309';
-    ctx.beginPath();
-    ctx.moveTo(0, -6);
-    ctx.lineTo(6, -1);
-    ctx.lineTo(-6, -1);
-    ctx.closePath();
-    ctx.fill();
-    // Doorway / Window
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillRect(-1, 0, 3, 3);
-  } else if (type === 'shrine') {
-    // Ancient Runestone Shrine (Mystical glowing amethyst/ruby pillar)
-    ctx.fillStyle = 'rgba(168, 85, 247, 0.4)';
-    ctx.fillRect(-6, -8, 12, 12);
-    ctx.fillStyle = '#a855f7';
-    ctx.fillRect(-3, -7, 6, 9);
-    ctx.fillStyle = '#f43f5e';
-    ctx.fillRect(-1, -5, 2, 4);
-    ctx.fillStyle = '#e9d5ff';
-    ctx.fillRect(-1, -2, 2, 2);
-  } else if (type === 'chest') {
-    // Golden Treasure Chest
-    ctx.fillStyle = '#b45309';
-    ctx.fillRect(-4, -3, 8, 6);
-    ctx.fillStyle = '#facc15';
-    ctx.fillRect(-4, -4, 8, 2);
-    ctx.fillStyle = '#1c1917';
-    ctx.fillRect(-1, -2, 2, 2);
-  } else if (type === 'bench') {
-    // Crafting Bench
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(-4, -3, 8, 6);
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillRect(-2, -5, 4, 2);
-  }
-
-  ctx.restore();
 }
 
 // 32-bit Hero Player Chevron Marker
