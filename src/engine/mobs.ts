@@ -144,13 +144,38 @@ const ARCHETYPES: Record<MobArchetype, MobArchetypeDef> = {
   }
 };
 
-/** Small talk for non-hostile NPCs, shown as a floating line. */
+/**
+ * Conversation pools. Traders talk about the world; hint lines teach the
+ * controls so a new player learns them by exploring rather than by opening the
+ * manual.
+ */
 const TRADER_LINES = [
-  'Kenney timber and stone are sturdy building blocks.',
-  'Dig deep for ruby veins, but watch the caves.',
-  'Nightfall is when the crypt wakes up.',
-  'Tap a destination to auto-path there.',
-  'Press C to change your outfit.'
+  'Kenney timber and stone make sturdy walls. Swing your pickaxe to gather more.',
+  'Ore veins run deep. Take a lantern before you dig for ruby.',
+  'Water carves deep channels through the valley. Follow one past the ridges.',
+  'The snow line moves with the hour. Peaks bare at noon can be white at dusk.',
+  'Everything here is a Kenney model, so nothing streams in half-baked. Give it a moment.',
+  'Ruins and shrines are scattered far apart. Walk a while and you will find one.'
+];
+
+const HINT_LINES = [
+  'Tap the ground and your hero walks there on its own.',
+  'Hold SPRINT to cover ground faster, and JUMP over a one block step.',
+  'Press I for the backpack, where you craft planks, bricks and tools.',
+  'Mine a cobblestone block to climb a step. Nothing taller than a block can be walked up.',
+  'Press C any time to change your outfit.',
+  'Nobody in this valley will hurt you. Take your time and look around.'
+];
+
+/** Deterministic names so each NPC keeps the same identity between talks. */
+const NPC_NAMES = [
+  'Bramble', 'Wren', 'Marlow', 'Sable', 'Fen', 'Oriel', 'Pike', 'Hazel',
+  'Rowan', 'Tamsin', 'Corvid', 'Juniper', 'Bram', 'Nell', 'Fenwick', 'Ash'
+];
+
+const NPC_ROLES = [
+  'provisioner', 'surveyor', 'stonemason', 'warden of the pass',
+  'pathfinder', 'herbalist', 'blacksmith', 'archivist'
 ];
 
 const GRAVITY = 20;
@@ -191,6 +216,12 @@ export class MobManager {
   /** Tunables surfaced to the spawn director. */
   public maxHostile = 8;
   public maxPassive = 8;
+  /**
+   * The valley is peaceful by default: nothing spawns hostile, and even a
+   * hostile archetype that somehow ends up loaded will neither chase nor hurt
+   * the player. Flip this to true to restore combat.
+   */
+  public hostilesEnabled = false;
   private spawnTimer = 0;
   private despawnCheck = 0;
   /** Mob/player y difference above which a mob cannot see the player. */
@@ -537,7 +568,7 @@ export class MobManager {
     isCreative: boolean = false
   ): Item[] {
     this.world = world;
-    const canFight = !isPlayerDead && !isCreative;
+    const canFight = this.hostilesEnabled && !isPlayerDead && !isCreative;
 
     for (const mob of this.mobs) {
       const rt = this.runtime.get(mob.id);
@@ -620,7 +651,8 @@ export class MobManager {
         // Face the player and swing on the archetype cooldown
         mob.rotationY = Math.atan2(dx, dz);
         const now = Date.now();
-        if (now - mob.lastAttackTime > def.attackCooldownMs && planar <= def.attackRange + 0.15 && Math.abs(dy) <= 1.6) {
+        if (this.hostilesEnabled &&
+          now - mob.lastAttackTime > def.attackCooldownMs && planar <= def.attackRange + 0.15 && Math.abs(dy) <= 1.6) {
           mob.lastAttackTime = now;
           onPlayerDamage(def.damage, mob.name, mob.x, mob.z);
           sound.playHit();
@@ -804,12 +836,18 @@ export class MobManager {
   private despawnFarMobs(playerPos: { x: number; y: number; z: number }): void {
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const mob = this.mobs[i];
-      const d = Math.hypot(mob.x - playerPos.x, mob.z - playerPos.z);
-      if (d <= 64) {
-        this.runtime.get(mob.id)!.despawnTimer = 0;
+      // Guarded rather than asserted: a missing runtime entry used to throw
+      // here, which takes down the whole render loop instead of one mob.
+      const rt = this.runtime.get(mob.id);
+      if (!rt) {
+        this.mobs.splice(i, 1);
         continue;
       }
-      const rt = this.runtime.get(mob.id)!;
+      const d = Math.hypot(mob.x - playerPos.x, mob.z - playerPos.z);
+      if (d <= 64) {
+        rt.despawnTimer = 0;
+        continue;
+      }
       rt.despawnTimer += 1.5;
       if (rt.despawnTimer > 4) this.removeMob(mob.id);
     }
@@ -847,7 +885,7 @@ export class MobManager {
     const hostileCount = this.countByHostility(true);
     const passiveCount = this.countByHostility(false);
 
-    if (isNight && hostileCount < this.maxHostile) {
+    if (this.hostilesEnabled && isNight && hostileCount < this.maxHostile) {
       const spot = this.findSpawnSpot(playerPos, world, 14, 26, true);
       if (spot) {
         const type: MobArchetype = Math.random() < 0.55 ? 'skeleton' : 'goblin';
@@ -857,10 +895,13 @@ export class MobManager {
       return;
     }
 
-    if (!isNight && passiveCount < this.maxPassive) {
-      const spot = this.findSpawnSpot(playerPos, world, 10, 22, false);
+    // A peaceful world keeps villagers around at every hour, so there is always
+    // somebody nearby to talk to.
+    if (passiveCount < this.maxPassive) {
+      const band = isNight ? [10, 22] : [8, 18];
+      const spot = this.findSpawnSpot(playerPos, world, band[0], band[1], false);
       if (spot) this.spawnMob('villager', spot.x, spot.y, spot.z);
-      this.spawnTimer = 7 + Math.random() * 5;
+      this.spawnTimer = isNight ? 5 + Math.random() * 4 : 7 + Math.random() * 5;
     }
   }
 
@@ -895,6 +936,48 @@ export class MobManager {
   /** Talk line for a tapped trader. */
   public smallTalk(): string {
     return TRADER_LINES[Math.floor(Math.random() * TRADER_LINES.length)];
+  }
+
+  /**
+   * Nearest NPC within `radius`, ignoring anything far away in Y. This is what
+   * the INTERACT button and the E key use, so a player standing next to a
+   * villager always talks to that villager instead of whatever a mouse ray
+   * happens to cross.
+   */
+  public findNpcNear(
+    x: number,
+    y: number,
+    z: number,
+    radius = 3.4,
+    maxHeightDiff = 2.2
+  ): MobEntity | null {
+    let best: MobEntity | null = null;
+    let bestDist = radius * radius;
+    for (const mob of this.mobs) {
+      if (Math.abs(mob.y - y) > maxHeightDiff) continue;
+      const dx = mob.x - x;
+      const dz = mob.z - z;
+      const dist = dx * dx + dz * dz;
+      if (dist <= bestDist) {
+        bestDist = dist;
+        best = mob;
+      }
+    }
+    return best;
+  }
+
+  /**
+   * A stable name, role and line for an NPC, so repeated conversations with the
+   * same villager feel like the same person rather than a random string.
+   */
+  public npcDialogue(mob: MobEntity, playerName: string): { name: string; role: string; line: string } {
+    let hash = 0;
+    for (let i = 0; i < mob.id.length; i++) hash = (hash * 31 + mob.id.charCodeAt(i)) >>> 0;
+    const name = NPC_NAMES[hash % NPC_NAMES.length];
+    const role = NPC_ROLES[(hash >>> 8) % NPC_ROLES.length];
+    const pool = hash % 3 === 0 ? HINT_LINES : TRADER_LINES;
+    const line = pool[(hash >>> 16) % pool.length];
+    return { name, role, line: `Hello ${playerName}. ${line}` };
   }
 
   /** Internal accessor used by the ground-height helper above. */

@@ -3,6 +3,7 @@ import { Backpack, Compass, Heart, Map, Menu, Moon, Sparkles, Sun, User, Volume2
 import { PlayerStats, Item, GameMode } from '../types';
 import { VoxelWorld } from '../engine/world';
 import { IsometricMinimap } from './IsometricMinimap';
+import { formatClock, isNightCycle } from '../engine/dayNight';
 
 interface HUDProps {
   playerStats: PlayerStats;
@@ -38,6 +39,10 @@ interface HUDProps {
   playerName?: string;
   /** Active quest line, shown as the objective card. */
   objective?: { title: string; detail: string; progress?: string };
+  /** Manual hours added on top of the real-time cycle. */
+  timeOffsetHours?: number;
+  /** Nudge the clock, e.g. +24 to jump a day. */
+  onShiftTime?: (hours: number) => void;
 }
 
 const BIOME_LABEL: Record<string, string> = {
@@ -72,7 +77,7 @@ const glyphFor = (item: Item): string => {
 export const HUD: React.FC<HUDProps> = ({
   playerStats, inventory, activeSlot, setActiveSlot, dayTime, setDayTime, isMuted, setIsMuted,
   onOpenInventory, onOpenCustomizer, onOpenHelp, worldRef, playerPosRef, cameraAngle,
-  playerName = 'Riven', objective
+  playerName = 'Riven', objective, timeOffsetHours = 0, onShiftTime
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
@@ -83,9 +88,10 @@ export const HUD: React.FC<HUDProps> = ({
   const activeItem = hotbarItems[activeSlot];
   const xp = playerStats.xp % 100;
   const hpPct = Math.max(0, Math.min(100, (playerStats.hp / playerStats.maxHp) * 100));
-  const isNight = dayTime < 0.25 || dayTime > 0.75;
-  const clockHours = Math.floor(((dayTime * 24) + 6) % 24);
-  const clockLabel = `${String(clockHours).padStart(2, '0')}:${String(Math.floor(((dayTime * 24) + 6) % 1 * 60)).padStart(2, '0')}`;
+  const isNight = isNightCycle(dayTime);
+  // The cycle *is* the player's wall clock, so show their clock back.
+  const clockLabel = formatClock(dayTime);
+  const isRealTime = timeOffsetHours === 0;
 
   // Read the live biome / coordinates out of the world without re-rendering the
   // canvas: a cheap timer reads the mutable refs the game loop writes.
@@ -108,9 +114,10 @@ export const HUD: React.FC<HUDProps> = ({
   };
 
   const toggleDayPhase = () => {
-    const wasNight = isNight;
-    setDayTime(prev => (prev + 0.25) % 1);
-    announce(wasNight ? 'Sunrise rolls in' : 'Night settles over the valley');
+    // Jump a full day forward. Real time keeps flowing afterwards, offset by the
+    // same amount, so the sky stays in step with the device clock plus the shift.
+    onShiftTime?.(24);
+    announce('Jumped forward one day');
   };
 
   return (
@@ -157,9 +164,13 @@ export const HUD: React.FC<HUDProps> = ({
               {menuOpen ? <X size={17} /> : <Menu size={17} />}
             </button>
             <div className="chip chip-accent"><Map size={12} />{BIOME_LABEL[place.biome] ?? place.biome}</div>
-            <div className="chip">
+            <div
+              className="chip"
+              title={isRealTime ? 'Following your device clock' : `Offset ${timeOffsetHours % 24}h from local time`}
+            >
               {isNight ? <Moon size={12} /> : <Sun size={12} />}
               {clockLabel}
+              {!isRealTime && <b className="text-[var(--gold)]">+{timeOffsetHours % 24}h</b>}
             </div>
           </div>
         </div>
@@ -222,7 +233,7 @@ export const HUD: React.FC<HUDProps> = ({
             <span className="flex items-center gap-2">
               {isNight ? <Moon size={15} /> : <Sun size={15} />} Time of day
             </span>
-            <span className="menu-meta">{clockLabel}</span>
+            <span className="menu-meta">{isRealTime ? 'REAL' : `+${timeOffsetHours % 24}H`}</span>
           </button>
           <button type="button" className="menu-row" onClick={() => { setMenuOpen(false); onOpenHelp(); }}>
             <span className="flex items-center gap-2"><Compass size={15} /> Controls &amp; settings</span><kbd>H</kbd>

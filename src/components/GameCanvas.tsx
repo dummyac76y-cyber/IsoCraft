@@ -9,7 +9,8 @@ import { generateCrackTexture } from '../engine/overlays';
 import { calculatePath, findAdjacentWalkableSpot, findGroundHeight, PathPoint } from '../engine/pathfinding';
 import { KenneyDecorationManager } from '../engine/kenneyDecorations';
 import { clearTouchEdges, TouchInputState } from '../engine/input';
-import { AABB, isFreeAt, moveEntity } from '../engine/collision';
+import { PHASE_BOUNDS, sunAzimuth, sunElevation, isNightCycle } from '../engine/dayNight';
+import { isFreeAt, moveEntity, settleOnGround } from '../engine/collision';
 
 interface GameCanvasProps {
   customization: CharacterCustomization;
@@ -41,6 +42,10 @@ interface GameCanvasProps {
   playerPosRef?: React.MutableRefObject<{ x: number; y: number; z: number; facingAngle: number }>;
   /** Shared touch bus written by the on-screen joystick and action buttons. */
   touchInput: TouchInputState;
+  /** Called when the player talks to an NPC. */
+  onNpcDialogue?: (dialogue: { name: string; role: string; line: string }) => void;
+  /** Name an NPC uses when greeting the player. */
+  playerName?: string;
 }
 
 export const GameCanvas: React.FC<GameCanvasProps> = ({
@@ -71,7 +76,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   onZoom,
   touchShiftMode = false,
   playerPosRef,
-  touchInput
+  touchInput,
+  onNpcDialogue,
+  playerName = 'Traveller'
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -664,8 +671,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           // NPC interaction dialogue
           character.triggerInteract();
           targetFacingAngle = Math.atan2(clickedMob.x - playerPos.x, clickedMob.z - playerPos.z);
+          const talk = mobManager.npcDialogue(clickedMob, playerName);
           sound.playItemCollect();
-          addFloatingText(mobManager.smallTalk(), clickedMob.x, clickedMob.y + 1.9, clickedMob.z, '#7dd3fc');
+          addFloatingText(talk.line, clickedMob.x, clickedMob.y + 2.2, clickedMob.z, '#7dd3fc');
+          onNpcDialogue?.(talk);
           return;
         }
       }
@@ -718,6 +727,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
      * and otherwise swings at a mob. Bound to the touch INTERACT button.
      */
     const handleInteractAtAim = () => {
+      // A nearby NPC always wins. This is what makes INTERACT and the E key
+      // work without having to aim a ray at a moving character.
+      const nearbyNpc = mobManager.findNpcNear(playerPos.x, playerPos.y, playerPos.z, 3.6);
+      if (nearbyNpc) {
+        targetFacingAngle = Math.atan2(nearbyNpc.x - playerPos.x, nearbyNpc.z - playerPos.z);
+        character.triggerInteract();
+        const talk = mobManager.npcDialogue(nearbyNpc, playerName);
+        sound.playItemCollect();
+        addFloatingText(talk.line, nearbyNpc.x, nearbyNpc.y + 2.2, nearbyNpc.z, '#7dd3fc');
+        onNpcDialogue?.(talk);
+        return;
+      }
+
       raycaster.setFromCamera(mouseNDC, camera);
 
       if (currentHit) {
@@ -746,12 +768,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const mob = node.userData?.mob as MobEntity | undefined;
           if (mob) {
             if (playerPos.distanceTo(new THREE.Vector3(mob.x, mob.y, mob.z)) <= 3.4) {
-              character.triggerAttack();
               targetFacingAngle = Math.atan2(mob.x - playerPos.x, mob.z - playerPos.z);
-              const damage = activeItemRef.current?.damage || 2;
-              const { dead } = mobManager.hitMob(mob.id, damage, playerPos.x, playerPos.z);
-              addFloatingText(`-${damage}`, mob.x, mob.y + 1.4, mob.z, '#ff6b6b');
-              if (dead) sound.playLevelUp();
+              // Interact means "talk to". Swinging a weapon stays a separate,
+              // deliberate action on the mining button.
+              character.triggerInteract();
+              const talk = mobManager.npcDialogue(mob, playerName);
+              sound.playItemCollect();
+              addFloatingText(talk.line, mob.x, mob.y + 2.2, mob.z, '#7dd3fc');
+              onNpcDialogue?.(talk);
             }
             return;
           }
@@ -856,6 +880,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     let shadowFrame = 0;
     let frameCounter = 0;
+    /** Visual-only lag so a step-up reads as a climb rather than a teleport. */
+    let stepVisualOffset = 0;
     let lightSortFrame = 0;
     let lastLightSourceCount = -1;
     let nearestLightsCache: Array<{ ls: (typeof world.lightSources)[number]; distSq: number }> | null = null;
@@ -878,6 +904,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         invulnerableTimer = 3.0;
 
         character.resetFromDeath();
+        stepVisualOffset = 0;
         targetFacingAngle = cameraAngleRef.current + Math.PI;
         currentFacingAngle = targetFacingAngle;
         character.group.position.copy(playerPos);
@@ -900,7 +927,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (frameCounter % 180 === 0) decorations.pruneColliders(world);
 
       // Day/night spawn director with population caps
-      const isNightNow = dayTimeRef.current < 0.27 || dayTimeRef.current > 0.73;
+      const isNightNow = isNightCycle(dayTimeRef.current);
       mobManager.spawnDirector(playerPos, world, isNightNow, delta);
 
       // Update Zoom & Frustum
@@ -926,7 +953,6 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // against the Kenney prop colliders published by the decoration layer.
       const PLAYER_RADIUS = 0.28;
       const PLAYER_HEIGHT = 1.7;
-      const playerBox: AABB = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
       const collidesAt = (px: number, py: number, pz: number): boolean =>
         !isFreeAt(world, px, py, pz, PLAYER_RADIUS, PLAYER_HEIGHT);
 
@@ -992,7 +1018,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
       // Grounding & Water check
       const feetY = playerPos.y;
-      let isGrounded = collidesAt(playerPos.x, feetY - 0.1, playerPos.z);
+      let isGrounded = collidesAt(playerPos.x, feetY - 0.06, playerPos.z);
       const isInWater = world.getBlock(Math.floor(playerPos.x), Math.floor(playerPos.y + 0.3), Math.floor(playerPos.z)) === BlockType.WATER;
 
       // Velocity calculation
@@ -1040,11 +1066,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       }
 
       // Ground probe uses the real box so slabs and prop trunks count as ground
-      const grounded = collidesAt(playerPos.x, playerPos.y - 0.1, playerPos.z);
       const wasGrounded = isGrounded;
-      isGrounded = grounded;
-
-      const horizontalAllowed = !isDeadRef.current && (wasGrounded || isInWater);
       const move = moveEntity(
         world,
         playerPos,
@@ -1053,15 +1075,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         playerVel.x * delta,
         playerVel.y * delta,
         playerVel.z * delta,
-        horizontalAllowed
+        !isDeadRef.current && (wasGrounded || isInWater)
       );
 
       if (move.hitY) {
-        if (playerVel.y < 0) playerPos.y = Math.floor(playerPos.y) + 0.001;
+        // Snap onto whatever surface was hit instead of flooring the height.
+        // Flooring pushed the body inside half-height blocks and prop tops,
+        // which blocked every move, which triggered another step-up, which
+        // bounced it back out: the stepping glitch the player reported.
+        if (playerVel.y < 0) settleOnGround(world, playerPos, PLAYER_RADIUS, PLAYER_HEIGHT);
         playerVel.y = 0;
       }
       if (move.hitX) playerVel.x = 0;
       if (move.hitZ) playerVel.z = 0;
+
+      // Auto step-up raises the body in one frame. Physics needs that, but the
+      // model should climb, so the rise feeds a short decay that the render
+      // position trails. Without it every step read as a jump.
+      if (move.stepY > 0) stepVisualOffset += move.stepY;
+      stepVisualOffset = Math.max(0, stepVisualOffset - delta * 3.2);
+
+      // Re-probe after the move so the ground state describes where the body
+      // ended up this frame, not where it started.
+      isGrounded = collidesAt(playerPos.x, playerPos.y - 0.06, playerPos.z);
 
       // Failsafe if player falls below world
       if (playerPos.y < 0) {
@@ -1075,7 +1111,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
       if (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
       currentFacingAngle += angleDiff * 0.22;
-      character.group.position.copy(playerPos);
+      character.group.position.set(playerPos.x, playerPos.y - stepVisualOffset, playerPos.z);
       character.update(delta, isMoving, isRunning, !isGrounded, currentFacingAngle);
       character.setEquippedItem(activeItemRef.current);
 
@@ -1135,12 +1171,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       camera.position.lerp(targetCamPos, 0.14);
       camera.lookAt(cameraFocusPos.x, cameraFocusPos.y + 0.6, cameraFocusPos.z);
 
-      // Day / Night Celestial Lighting
+      // Day / Night Celestial Lighting.
+      // `cycle` is the player's real local time mapped by engine/dayNight:
+      // 0 = 06:00 dawn, 0.25 = 12:00 noon, 0.5 = 18:00 dusk, 0.75 = 00:00. The
+      // bands below are keyed to those hours, so the sky matches their clock.
       const currentDayTime = dayTimeRef.current;
-      const cycle = currentDayTime % 1.0;
-      const sunAngle = (cycle - 0.25) * Math.PI * 2;
-      const sunCos = Math.cos(sunAngle);
-      const sunSin = Math.sin(sunAngle);
+      const cycle = (currentDayTime % 1.0 + 1.0) % 1.0;
+      const sunCos = sunAzimuth(cycle);
+      const sunSin = sunElevation(cycle);
 
       const sunDistance = 55;
       sunLight.position.set(
@@ -1157,9 +1195,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       );
       moonLight.target.position.copy(playerPos);
 
-      if (cycle >= 0.30 && cycle <= 0.68) {
-        // Daytime
-        const dayProgress = (cycle - 0.30) / 0.38;
+      if (cycle >= PHASE_BOUNDS.dayStart && cycle <= PHASE_BOUNDS.dayEnd) {
+        // Daytime, roughly 07:00 to 17:00
+        const dayProgress = (cycle - PHASE_BOUNDS.dayStart) / (PHASE_BOUNDS.dayEnd - PHASE_BOUNDS.dayStart);
         const noonDist = 1 - Math.abs(dayProgress - 0.5) * 2;
         sunLight.color.setHex(0xfffaec);
         sunLight.intensity = 1.15 + noonDist * 0.25;
@@ -1170,9 +1208,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         hemiLight.groundColor.setHex(0x526645);
         hemiLight.intensity = 0.42;
         skyBackground.setHex(0x6eb5f0);
-      } else if (cycle > 0.68 && cycle < 0.85) {
-        // Sunset
-        const t = (cycle - 0.68) / 0.17;
+      } else if (cycle > PHASE_BOUNDS.dayEnd && cycle < PHASE_BOUNDS.duskEnd) {
+        // Sunset, roughly 17:00 to 19:00
+        const t = (cycle - PHASE_BOUNDS.dayEnd) / (PHASE_BOUNDS.duskEnd - PHASE_BOUNDS.dayEnd);
         const subT = t * 2.0;
         if (t < 0.5) {
           sunLight.color.setRGB(1.0, THREE.MathUtils.lerp(0.85, 0.50, subT), THREE.MathUtils.lerp(0.50, 0.15, subT));
@@ -1196,8 +1234,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           hemiLight.intensity = 0.55;
           scene.background = skyBackground.copy(sunsetBackground).lerp(nightBackground, deepT);
         }
-      } else if (cycle >= 0.85 || cycle < 0.15) {
-        // Night
+      } else if (cycle >= PHASE_BOUNDS.duskEnd && cycle < PHASE_BOUNDS.nightEnd) {
+        // Night, roughly 19:00 to 05:00
         sunLight.intensity = 0;
         moonLight.color.setHex(0xa2c4ff);
         moonLight.intensity = 0.68;
@@ -1208,8 +1246,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         hemiLight.intensity = 0.55;
         skyBackground.copy(nightBackground);
       } else {
-        // Sunrise
-        const t = (cycle - 0.15) / 0.15;
+        // Sunrise, roughly 05:00 to 07:00, wrapping through zero
+        const t = cycle >= PHASE_BOUNDS.nightEnd
+          ? (cycle - PHASE_BOUNDS.nightEnd) / (1 - PHASE_BOUNDS.nightEnd + PHASE_BOUNDS.dayStart)
+          : cycle / PHASE_BOUNDS.dayStart;
         moonLight.intensity = THREE.MathUtils.lerp(0.68, 0, t);
         sunLight.color.setHex(0xffc588);
         sunLight.intensity = THREE.MathUtils.lerp(0.1, 1.15, t);

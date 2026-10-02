@@ -8,6 +8,7 @@ import { HelpModal } from './components/HelpModal';
 import { DeathModal } from './components/DeathModal';
 import { MobileControls } from './components/MobileControls';
 import { createTouchInput } from './engine/input';
+import { cycleFromDate } from './engine/dayNight';
 import { CharacterCustomization, Item, PlayerStats, GameMode, FloatingText, BlockType } from './types';
 import { VoxelWorld } from './engine/world';
 import { sound } from './engine/sound';
@@ -119,7 +120,10 @@ export default function App() {
   // --- Game Settings & Camera ---
   const [activeSlot, setActiveSlot] = useState<number>(0);
   const [gameMode, setGameMode] = useState<GameMode>('survival');
-  const [dayTime, setDayTime] = useState<number>(0.35); // 0.35 = sunny mid-morning
+  // Day/night follows the player's real wall clock. timeOffsetHours is a manual
+  // nudge on top of it, so the HUD can skip ahead without losing the link.
+  const [timeOffsetHours, setTimeOffsetHours] = useState<number>(0);
+  const [dayTime, setDayTime] = useState<number>(() => cycleFromDate(new Date()));
   const [cameraAngle, setCameraAngle] = useState<number>(Math.PI / 4); // 45 degrees isometric
   const [zoomLevel, setZoomLevel] = useState<number>(20);
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -200,6 +204,15 @@ export default function App() {
     () => typeof window !== 'undefined' &&
       (window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0)
   );
+
+  // Keep the sky on the device clock. A 20 second cadence is smooth for a sky
+  // that turns over an hour and costs nothing.
+  useEffect(() => {
+    const sync = () => setDayTime(cycleFromDate(new Date()) + timeOffsetHours / 24);
+    sync();
+    const id = window.setInterval(sync, 20_000);
+    return () => window.clearInterval(id);
+  }, [timeOffsetHours]);
 
   useEffect(() => {
     const query = window.matchMedia('(pointer: coarse)');
@@ -361,6 +374,20 @@ export default function App() {
     addFloatingText(`+${amount} HP`, 0, 0, 0, '#10b981');
   };
 
+  // NPC conversation, shown as a bubble for a few seconds
+  const [npcDialogue, setNpcDialogue] = useState<{ name: string; role: string; line: string } | null>(null);
+  const npcTimerRef = useRef<number | null>(null);
+
+  const handleNpcDialogue = (dialogue: { name: string; role: string; line: string }) => {
+    setNpcDialogue(dialogue);
+    if (npcTimerRef.current !== null) window.clearTimeout(npcTimerRef.current);
+    npcTimerRef.current = window.setTimeout(() => setNpcDialogue(null), 7000);
+  };
+
+  useEffect(() => () => {
+    if (npcTimerRef.current !== null) window.clearTimeout(npcTimerRef.current);
+  }, []);
+
   const activeItem = inventory[activeSlot] || null;
   const isAnyModalOpen = isInventoryOpen || isCustomizerOpen || isWorldModalOpen || isHelpOpen || isDead;
 
@@ -396,6 +423,7 @@ export default function App() {
         touchShiftMode={touchShiftMode}
         playerPosRef={playerPosRef}
         touchInput={touchInputRef.current}
+        onNpcDialogue={handleNpcDialogue}
       />
 
       {/* Virtual joystick + action buttons for phones and tablets */}
@@ -436,7 +464,22 @@ export default function App() {
         worldRef={worldRef}
         playerPosRef={playerPosRef}
         cameraAngle={cameraAngle}
+        timeOffsetHours={timeOffsetHours}
+        onShiftTime={(hours) => setTimeOffsetHours(prev => (((prev + hours) % 24) + 24) % 24)}
       />
+
+      {/* NPC conversation bubble */}
+      {npcDialogue && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-32 z-30 flex justify-center px-4">
+          <div className="panel max-w-md px-4 py-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] font-bold text-[var(--gold-soft)]">{npcDialogue.name}</span>
+              <span className="eyebrow">{npcDialogue.role}</span>
+            </div>
+            <p className="body-sm mt-1.5 text-[var(--text-hi)]">{npcDialogue.line}</p>
+          </div>
+        </div>
+      )}
 
       {/* Floating 8-bit Notifications */}
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center">

@@ -174,6 +174,12 @@ export interface MoveResult {
   hitX: boolean;
   hitY: boolean;
   hitZ: boolean;
+  /**
+   * Total rise applied by auto step-up this frame. The body has already moved,
+   * but callers use this to ease the visual model upward instead of snapping it
+   * a third of a block in a single frame.
+   */
+  stepY: number;
 }
 
 function freeAt(
@@ -209,6 +215,40 @@ function freeAt(
 }
 
 
+/** Granularity of the auto step-up search, in world units. */
+const RISE_STEP = 0.02;
+
+/**
+ * Smallest rise that frees a horizontal move at (x, z), or null when no rise
+ * within `maxRise` works.
+ *
+ * The old step-up snapped to `Math.floor(pos.y) + STEP_HEIGHT`, which lifted a
+ * mover standing on flat ground a whole block every time it brushed against
+ * anything, then dropped it again on the next gravity tick. That read as
+ * "walking into an object makes the character jump and glitch", because the
+ * body oscillated up a block and back down every few frames. Searching for the
+ * smallest workable rise makes a step behave like a ramp: climbing a
+ * half-height block lifts the mover by that much, and brushing a flat wall
+ * lifts it by nothing at all.
+ */
+function findStepRise(
+  sampler: BlockSampler,
+  probe: AABB,
+  pos: { x: number; y: number; z: number },
+  halfW: number,
+  height: number,
+  targetX: number,
+  targetZ: number,
+  maxRise: number
+): number | null {
+  for (let rise = RISE_STEP; rise <= maxRise + RISE_STEP * 0.5; rise += RISE_STEP) {
+    if (freeAt(sampler, probe, targetX, pos.y + rise, targetZ, halfW, height)) {
+      return rise;
+    }
+  }
+  return null;
+}
+
 /**
  * Move an entity by (dx, dy, dz), resolving each axis independently so walls
  * slide instead of stopping the mover dead, with an optional auto step-up.
@@ -223,7 +263,7 @@ export function moveEntity(
   dz: number,
   stepUp = false
 ): MoveResult {
-  const result: MoveResult = { hitX: false, hitY: false, hitZ: false };
+  const result: MoveResult = { hitX: false, hitY: false, hitZ: false, stepY: 0 };
   const probe: AABB = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
 
   if (dy !== 0) {
@@ -234,16 +274,22 @@ export function moveEntity(
     }
   }
 
+  // Head room bounds how far the mover may still climb, so it cannot step up
+  // into a ceiling it is already touching.
+  const headRoom = Math.max(0, Math.min(STEP_HEIGHT, Math.floor(pos.y + height) - pos.y));
+
   if (dx !== 0) {
-    if (freeAt(sampler, probe, pos.x + dx, pos.y, pos.z, halfW, height)) {
-      pos.x += dx;
-    } else if (stepUp) {
-      const stepped = Math.floor(pos.y) + STEP_HEIGHT;
-      if (stepped - pos.y <= STEP_HEIGHT && freeAt(sampler, probe, pos.x + dx, stepped, pos.z, halfW, height)) {
-        pos.x += dx;
-        pos.y = stepped;
-      } else {
+    const targetX = pos.x + dx;
+    if (freeAt(sampler, probe, targetX, pos.y, pos.z, halfW, height)) {
+      pos.x = targetX;
+    } else if (stepUp && headRoom > 0) {
+      const rise = findStepRise(sampler, probe, pos, halfW, height, targetX, pos.z, headRoom);
+      if (rise === null) {
         result.hitX = true;
+      } else {
+        pos.x = targetX;
+        pos.y += rise;
+        result.stepY += rise;
       }
     } else {
       result.hitX = true;
@@ -251,15 +297,17 @@ export function moveEntity(
   }
 
   if (dz !== 0) {
-    if (freeAt(sampler, probe, pos.x, pos.y, pos.z + dz, halfW, height)) {
-      pos.z += dz;
-    } else if (stepUp) {
-      const stepped = Math.floor(pos.y) + STEP_HEIGHT;
-      if (stepped - pos.y <= STEP_HEIGHT && freeAt(sampler, probe, pos.x, stepped, pos.z + dz, halfW, height)) {
-        pos.z += dz;
-        pos.y = stepped;
-      } else {
+    const targetZ = pos.z + dz;
+    if (freeAt(sampler, probe, pos.x, pos.y, targetZ, halfW, height)) {
+      pos.z = targetZ;
+    } else if (stepUp && headRoom > 0) {
+      const rise = findStepRise(sampler, probe, pos, halfW, height, pos.x, targetZ, headRoom);
+      if (rise === null) {
         result.hitZ = true;
+      } else {
+        pos.z = targetZ;
+        pos.y += rise;
+        result.stepY += rise;
       }
     } else {
       result.hitZ = true;
@@ -267,6 +315,38 @@ export function moveEntity(
   }
 
   return result;
+}
+
+/**
+ * Drop a blocked mover onto the surface it is resting on and return the resting
+ * height.
+ *
+ * Callers used to recover from a ground hit with `Math.floor(y) + 0.001`. That
+ * is only correct on full blocks: landing on a half-height block or a prop
+ * collider pushed the body *inside* the obstacle, which immediately blocked
+ * every horizontal move, which triggered another step-up, which bounced it
+ * back out again. That loop is the second half of the stepping glitch. This
+ * finds the first free height instead, so slabs, platforms and prop tops all
+ * rest correctly.
+ */
+export function settleOnGround(
+  sampler: BlockSampler,
+  pos: { x: number; y: number; z: number },
+  halfW: number,
+  height: number,
+  maxDrop = 0.75
+): number {
+  const probe: AABB = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
+  if (freeAt(sampler, probe, pos.x, pos.y, pos.z, halfW, height)) return pos.y;
+
+  for (let drop = RISE_STEP; drop <= maxDrop; drop += RISE_STEP) {
+    const y = pos.y - drop;
+    if (freeAt(sampler, probe, pos.x, y, pos.z, halfW, height)) {
+      pos.y = y;
+      return y;
+    }
+  }
+  return pos.y;
 }
 
 /** True when an entity of this size can stand at (x, y, z). */
