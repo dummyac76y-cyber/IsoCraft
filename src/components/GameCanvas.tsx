@@ -152,7 +152,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     worldRef.current = world;
     scene.add(world.group);
 
-    // --- Semi-Blocky Player Character ---
+    // --- Player Character (Kenney Mini Characters rigged GLB) ---
     const character = new CharacterModel(customization);
     characterRef.current = character;
     const safeSpawn = findSafeSurfaceSpawn(world, 0, 0);
