@@ -339,6 +339,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     scene.add(moonLight);
     scene.add(moonLight.target);
 
+    // shadowMap.autoUpdate is off, so nothing is ever rendered into a light's
+    // shadow map unless it is explicitly requested. Request the very first pass
+    // here, during setup, so no frame can ever reach the GPU with a
+    // castShadow light whose shadow.map is still null -- a null map makes three
+    // declare a sampler2DShadow it has nothing valid to bind, and ANGLE rejects
+    // the draw with GL_INVALID_OPERATION ("Mismatch between texture format and
+    // sampler type (signed/unsigned/float/shadow)"), which blanks the scene.
+    renderer.shadowMap.needsUpdate = true;
+
     // Point lights for torches. Kept to a small pool: every extra light is
     // evaluated per-fragment by ALL Lambert materials in the scene, which is
     // a real GPU cost on low-end devices (the 8 nearest torches is plenty).
