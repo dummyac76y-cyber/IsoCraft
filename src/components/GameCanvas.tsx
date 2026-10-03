@@ -453,9 +453,16 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let mouseButton = 0;
     let isMiddleDragging = false;
     // Shadow refresh bookkeeping: position, sun cycle and a minimum frame gap.
-    let shadowAnchorX = Number.NaN;
-    let shadowAnchorZ = Number.NaN;
-    let shadowAnchorSun = Number.NaN;
+    // The anchors start "unprimed" rather than NaN on purpose: every comparison
+    // against NaN is false (NaN > 0.35 === false), so NaN anchors meant
+    // `moved`/`sunMoved` could never become true. With shadowMap.autoUpdate
+    // off, renderer.shadowMap.needsUpdate was therefore never set, no shadow
+    // map was ever rendered, and light.shadow.map stayed null for the whole
+    // session -- which silently disabled every shadow in the game.
+    let shadowsPrimed = false;
+    let shadowAnchorX = 0;
+    let shadowAnchorZ = 0;
+    let shadowAnchorSun = 0;
     const containerRect = { left: 0, top: 0, width: 1, height: 1 };
     // Pixels dragged with the middle button. A press that never crosses this
     // threshold counts as a click and snaps the view one 45 degree step.
@@ -1377,9 +1384,17 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // shadow passes (every chunk of the voxel world is drawn into each
       // map). Guarded so materials only recompile at dawn/dusk transitions.
       const sunWantsShadow = sunLight.intensity > 0.05;
-      if (sunLight.castShadow !== sunWantsShadow) sunLight.castShadow = sunWantsShadow;
+      if (sunLight.castShadow !== sunWantsShadow) {
+        sunLight.castShadow = sunWantsShadow;
+        // Handing the shadow pass a different light changes which shadow maps
+        // exist, so the maps have to be rebuilt or the new one stays null.
+        renderer.shadowMap.needsUpdate = true;
+      }
       const moonWantsShadow = moonLight.intensity > 0.05;
-      if (moonLight.castShadow !== moonWantsShadow) moonLight.castShadow = moonWantsShadow;
+      if (moonLight.castShadow !== moonWantsShadow) {
+        moonLight.castShadow = moonWantsShadow;
+        renderer.shadowMap.needsUpdate = true;
+      }
 
       // Torch illumination
       const holdsTorch = activeItemRef.current?.id === 'torch';
@@ -1636,9 +1651,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       const moved = Math.abs(playerPos.x - shadowAnchorX) > 0.35 || Math.abs(playerPos.z - shadowAnchorZ) > 0.35;
       const sunMoved = Math.abs(dayTimeRef.current - shadowAnchorSun) > 0.0015;
       shadowFrame++;
-      if ((moved || sunMoved) && shadowFrame >= SHADOW_MIN_GAP) {
+      // The priming pass is not rate limited: it has to land on the very first
+      // frame, otherwise the opening frames draw with a null shadow map.
+      const due = shadowsPrimed ? shadowFrame >= SHADOW_MIN_GAP : true;
+      if (due && (!shadowsPrimed || moved || sunMoved)) {
         shadowFrame = 0;
         renderer.shadowMap.needsUpdate = true;
+        shadowsPrimed = true;
         shadowAnchorX = playerPos.x;
         shadowAnchorZ = playerPos.z;
         shadowAnchorSun = dayTimeRef.current;
