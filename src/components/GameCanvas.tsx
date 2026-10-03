@@ -8,6 +8,7 @@ import { BlockType, CharacterCustomization, Item, RaycastHit, GameMode, PlayerSt
 import { generateCrackTexture } from '../engine/overlays';
 import { calculatePath, findAdjacentWalkableSpot, findGroundHeight, PathPoint } from '../engine/pathfinding';
 import { KenneyDecorationManager } from '../engine/kenneyDecorations';
+import { KenneyIsoGround } from '../engine/isoGround';
 import { clearTouchEdges, TouchInputState } from '../engine/input';
 import { PHASE_BOUNDS, sunAzimuth, sunElevation, isNightCycle } from '../engine/dayNight';
 import { isFreeAt, moveEntity, settleOnGround } from '../engine/collision';
@@ -296,6 +297,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     // --- Kenney "Mini Arena" plaza: real arena pieces staged next to the camp ---
     decorations.placeArenaPlaza(safeSpawn.x, safeSpawn.z, world);
 
+    // --- Kenney "Isometric Landscape" ground tiles over the visible terrain ---
+    const isoGround = new KenneyIsoGround(1234);
+    scene.add(isoGround.group);
 
     // --- Lighting Setup ---
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.48);
@@ -458,8 +462,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let middleDragDistance = 0;
     let lastMiddleX = 0;
     let lastMiddleY = 0;
-    let targetElevation = 0.785; // 45 degrees
-    let currentElevation = 0.785;
+    // True isometric elevation (35.26 degrees): the Kenney 2:1 ground tiles
+    // only line up edge-to-edge at this angle. Dragging still tilts the view.
+    const ISO_ELEVATION = Math.atan(1 / Math.SQRT2);
+    let targetElevation = ISO_ELEVATION;
+    let currentElevation = ISO_ELEVATION;
 
     // Path following state (ONLY triggered on Shift+Click!)
     let activePath: PathPoint[] | null = null;
@@ -1023,6 +1030,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // Scatter biome-aware Kenney props across freshly streamed chunks and
       // drop colliders for chunks that streamed out
       decorations.update(playerPos.x, playerPos.z, world, time);
+      isoGround.update(playerPos.x, playerPos.z, world, time);
       if (frameCounter % 180 === 0) decorations.pruneColliders(world);
 
       // Day/night spawn director with population caps. Running it every frame
@@ -1674,6 +1682,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       window.removeEventListener('mouseup', handleWindowDragEnd);
       characterRef.current = null;
       decorations.dispose();
+      isoGround.dispose();
       world.dispose();
       renderer.dispose();
       if (container.contains(renderer.domElement)) {
