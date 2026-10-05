@@ -12,10 +12,12 @@ interface WorldModalProps {
   onWorldRegenerated: () => void;
 }
 
-// Security helper to validate and clamp world seed input
+// Security helper to validate, restrict length, and clamp world seed input against DoS or overflow
 const sanitizeSeed = (inputVal: string): number => {
-  const parsed = parseInt(inputVal, 10);
-  if (isNaN(parsed)) return 1;
+  // Enforce input length limit to prevent CPU exhaustion or UI breakage from huge inputs
+  const cleaned = inputVal.trim().slice(0, 6);
+  const parsed = parseInt(cleaned, 10);
+  if (isNaN(parsed) || !Number.isFinite(parsed)) return 1;
   // Clamp seed to safe positive range [1, 999999]
   return Math.max(1, Math.min(999999, Math.floor(Math.abs(parsed))));
 };
@@ -123,6 +125,8 @@ export const WorldModal: React.FC<WorldModalProps> = ({
             value={seed}
             min={1}
             max={999999}
+            maxLength={6}
+            pattern="[0-9]*"
             onChange={e => setSeed(sanitizeSeed(e.target.value))}
             aria-label="World seed"
           />
