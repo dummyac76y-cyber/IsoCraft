@@ -180,7 +180,7 @@ interface PixelIconProps {
 }
 
 export function PixelIcon({ name, size = 12, className, title }: PixelIconProps) {
-  const paths = GLYPHS[name];
+  const paths = Object.prototype.hasOwnProperty.call(GLYPHS, name) ? GLYPHS[name] : undefined;
   if (!paths) return null;
   return (
     <svg
@@ -223,8 +223,6 @@ export function iconForItem(item: { id: string; type: string }): PixelIconName {
     case 'stone_bricks':
     case 'bricks':
       return 'block';
-    case 'bookshelf':
-      return 'book';
     case 'bookshelf':
       return 'book';
     default:

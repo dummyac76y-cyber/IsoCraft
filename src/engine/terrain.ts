@@ -314,13 +314,13 @@ export class TerrainField {
 
   constructor(seed: number = 42, preset: TerrainPreset = 'meadow') {
     this.seed = seed >>> 0;
-    this.preset = preset;
-    this.params = PRESETS[preset] ?? PRESETS.meadow;
+    this.preset = Object.prototype.hasOwnProperty.call(PRESETS, preset) ? preset : 'meadow';
+    this.params = PRESETS[this.preset];
   }
 
   public setPreset(preset: TerrainPreset): void {
-    this.preset = preset;
-    this.params = PRESETS[preset] ?? PRESETS.meadow;
+    this.preset = Object.prototype.hasOwnProperty.call(PRESETS, preset) ? preset : 'meadow';
+    this.params = PRESETS[this.preset];
     this.columnCache.clear();
     this.heightCache.clear();
   }

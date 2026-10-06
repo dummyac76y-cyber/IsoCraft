@@ -206,7 +206,7 @@ export function loadKenneyIsoTile(file: string): THREE.Texture {
   texture.generateMipmaps = true;
   texture.colorSpace = THREE.SRGBColorSpace;
 
-  const known = ISO_TILE_HEIGHTS[file];
+  const known = Object.prototype.hasOwnProperty.call(ISO_TILE_HEIGHTS, file) ? ISO_TILE_HEIGHTS[file] : undefined;
   if (known) crop(texture, known);
 
   isoTileCache.set(file, texture);
