@@ -34,7 +34,9 @@ const ARMOR_TINTS: Record<CharacterCustomization['armorTier'], number | null> = 
 const PLAYER_HEIGHT = 1.7;
 
 function variantFor(c: CharacterCustomization): string {
-  const list = PLAYER_VARIANTS[c.hairStyle] ?? PLAYER_VARIANTS.short;
+  const list = (Object.prototype.hasOwnProperty.call(PLAYER_VARIANTS, c.hairStyle)
+    ? PLAYER_VARIANTS[c.hairStyle]
+    : null) ?? PLAYER_VARIANTS.short;
   let hash = 0;
   const seed = c.skinTone + c.hairColor + c.tunicColor + c.pantsColor;
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
@@ -279,7 +281,9 @@ export class CharacterModel {
   }
 
   private applyArmorTint() {
-    const tint = ARMOR_TINTS[this.customization.armorTier];
+    const tint = Object.prototype.hasOwnProperty.call(ARMOR_TINTS, this.customization.armorTier)
+      ? ARMOR_TINTS[this.customization.armorTier]
+      : null;
     this.baseColors.forEach((base, mat) => {
       const m = mat as THREE.MeshLambertMaterial;
       if (tint === null) {
