@@ -304,6 +304,19 @@ function terrace(h: number, strength: number, step: number): number {
   return h + (stepped - h) * strength;
 }
 
+// Security helpers for defensive input validation
+function sanitizePreset(preset: TerrainPreset): TerrainPreset {
+  if (typeof preset === 'string' && Object.prototype.hasOwnProperty.call(PRESETS, preset)) {
+    return preset;
+  }
+  return 'meadow';
+}
+
+function sanitizeSeed(seed: number): number {
+  if (typeof seed !== 'number' || !Number.isFinite(seed)) return 42;
+  return seed >>> 0;
+}
+
 export class TerrainField {
   public seed: number;
   public preset: TerrainPreset;
@@ -313,14 +326,14 @@ export class TerrainField {
   private heightCache = new Map<number, number>();
 
   constructor(seed: number = 42, preset: TerrainPreset = 'meadow') {
-    this.seed = seed >>> 0;
-    this.preset = preset;
-    this.params = PRESETS[preset] ?? PRESETS.meadow;
+    this.preset = sanitizePreset(preset);
+    this.seed = sanitizeSeed(seed);
+    this.params = PRESETS[this.preset];
   }
 
   public setPreset(preset: TerrainPreset): void {
-    this.preset = preset;
-    this.params = PRESETS[preset] ?? PRESETS.meadow;
+    this.preset = sanitizePreset(preset);
+    this.params = PRESETS[this.preset];
     this.columnCache.clear();
     this.heightCache.clear();
   }
