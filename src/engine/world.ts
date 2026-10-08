@@ -457,9 +457,9 @@ export class VoxelWorld {
   private readonly _blockBox: AABB = { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
 
   constructor(seed: number = 42, preset: TerrainPreset = 'meadow') {
-    this.seed = seed;
-    this.preset = preset;
     this.terrain = new TerrainField(seed, preset);
+    this.seed = this.terrain.seed;
+    this.preset = this.terrain.preset;
     this.group = new THREE.Group();
     this.group.name = 'InfiniteVoxelWorld';
 
@@ -489,9 +489,9 @@ export class VoxelWorld {
   // -------------------------------------------------------------------------
 
   public generate(preset: TerrainPreset = 'meadow', seed: number = 42): void {
-    this.preset = preset;
-    this.seed = seed;
     this.terrain = new TerrainField(seed, preset);
+    this.preset = this.terrain.preset;
+    this.seed = this.terrain.seed;
 
     this.modifiedBlocks.clear();
     this.chestContents.clear();
