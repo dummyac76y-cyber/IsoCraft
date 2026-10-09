@@ -12,12 +12,15 @@ interface WorldModalProps {
   onWorldRegenerated: () => void;
 }
 
-// Security helper to validate and clamp world seed input
+// Security helper to validate and clamp world seed input against NaN, floats, or non-numeric input
 const sanitizeSeed = (inputVal: string): number => {
-  const parsed = parseInt(inputVal, 10);
-  if (isNaN(parsed)) return 1;
+  // Strip non-digit characters to prevent floats, negative values, and exponential notation
+  const cleaned = inputVal.replace(/[^0-9]/g, '');
+  if (!cleaned) return 1;
+  const parsed = parseInt(cleaned, 10);
+  if (isNaN(parsed) || !isFinite(parsed)) return 1;
   // Clamp seed to safe positive range [1, 999999]
-  return Math.max(1, Math.min(999999, Math.floor(Math.abs(parsed))));
+  return Math.max(1, Math.min(999999, Math.floor(parsed)));
 };
 
 const PRESETS: Array<{ id: TerrainPreset; name: string; description: string; icon: PixelIconName }> = [
@@ -54,20 +57,24 @@ export const WorldModal: React.FC<WorldModalProps> = ({
   onWorldRegenerated
 }) => {
   const [selectedPreset, setSelectedPreset] = useState<TerrainPreset>('meadow');
-  const [seed, setSeed] = useState<number>(() => Math.floor(Math.random() * 999999) + 1);
+  const [seedInput, setSeedInput] = useState<string>(() =>
+    String(Math.floor(Math.random() * 999999) + 1)
+  );
 
   if (!isOpen) return null;
 
   const handleGenerate = () => {
     if (!worldRef.current) return;
+    const finalSeed = sanitizeSeed(seedInput);
     sound.playLevelUp();
-    worldRef.current.generate(selectedPreset, seed);
+    worldRef.current.generate(selectedPreset, finalSeed);
     onWorldRegenerated();
     onClose();
   };
 
   const handleRandomSeed = () => {
-    setSeed(Math.floor(Math.random() * 999999) + 1);
+    const newSeed = Math.floor(Math.random() * 999999) + 1;
+    setSeedInput(String(newSeed));
     sound.playStep('stone');
   };
 
@@ -120,10 +127,11 @@ export const WorldModal: React.FC<WorldModalProps> = ({
           <input
             type="number"
             className="px-input flex-1"
-            value={seed}
+            value={seedInput}
             min={1}
             max={999999}
-            onChange={e => setSeed(sanitizeSeed(e.target.value))}
+            onChange={e => setSeedInput(e.target.value)}
+            onBlur={() => setSeedInput(String(sanitizeSeed(seedInput)))}
             aria-label="World seed"
           />
           <button type="button" className="px-btn" onClick={handleRandomSeed}>
