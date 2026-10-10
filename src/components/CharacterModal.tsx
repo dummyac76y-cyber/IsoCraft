@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { CharacterCustomization } from '../types';
-import { CharacterModel } from '../engine/character';
+import { CharacterModel, sanitizeHexColor } from '../engine/character';
 import { PixelModal } from './PixelModal';
 import { PixelIcon } from './PixelIcon';
 
@@ -220,25 +220,29 @@ function ColorPicker({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const active = colors.find(c => c.value.toLowerCase() === value.toLowerCase());
+  const safeValue = sanitizeHexColor(value, colors[0]?.value ?? '#ffffff');
+  const active = colors.find(c => c.value.toLowerCase() === safeValue.toLowerCase());
   return (
     <section className="px-well">
       <div className="flex items-baseline justify-between gap-2">
         <span className="px-label">{label}</span>
-        <span className="px-body">{active?.name ?? value}</span>
+        <span className="px-body">{active?.name ?? safeValue}</span>
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
-        {colors.map(c => (
-          <button
-            key={c.value}
-            type="button"
-            onClick={() => onChange(c.value)}
-            className={`px-swatch ${value.toLowerCase() === c.value.toLowerCase() ? 'is-selected' : ''}`}
-            style={{ backgroundColor: c.value }}
-            aria-label={c.name}
-            title={c.name}
-          />
-        ))}
+        {colors.map(c => {
+          const safeSwatch = sanitizeHexColor(c.value, '#ffffff');
+          return (
+            <button
+              key={c.value}
+              type="button"
+              onClick={() => onChange(safeSwatch)}
+              className={`px-swatch ${safeValue.toLowerCase() === safeSwatch.toLowerCase() ? 'is-selected' : ''}`}
+              style={{ backgroundColor: safeSwatch }}
+              aria-label={c.name}
+              title={c.name}
+            />
+          );
+        })}
       </div>
     </section>
   );

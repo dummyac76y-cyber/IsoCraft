@@ -33,10 +33,22 @@ const ARMOR_TINTS: Record<CharacterCustomization['armorTier'], number | null> = 
 
 const PLAYER_HEIGHT = 1.7;
 
+/** Security helper: Validates and sanitizes CSS hex color strings to prevent malformed values or CSS property injection */
+export function sanitizeHexColor(hex: string, fallback: string): string {
+  if (typeof hex === 'string' && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex.trim())) {
+    return hex.trim();
+  }
+  return fallback;
+}
+
 function variantFor(c: CharacterCustomization): string {
   const list = PLAYER_VARIANTS[c.hairStyle] ?? PLAYER_VARIANTS.short;
   let hash = 0;
-  const seed = c.skinTone + c.hairColor + c.tunicColor + c.pantsColor;
+  const skinTone = sanitizeHexColor(c.skinTone, '#ffd1a4');
+  const hairColor = sanitizeHexColor(c.hairColor, '#f4c430');
+  const tunicColor = sanitizeHexColor(c.tunicColor, '#2563eb');
+  const pantsColor = sanitizeHexColor(c.pantsColor, '#1f2937');
+  const seed = skinTone + hairColor + tunicColor + pantsColor;
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   return list[hash % list.length];
 }
@@ -154,16 +166,19 @@ export class CharacterModel {
     const c = this.customization;
     const holder = new THREE.Group();
 
+    const tunicColor = sanitizeHexColor(c.tunicColor, '#2563eb');
+    const skinTone = sanitizeHexColor(c.skinTone, '#ffd1a4');
+
     const torso = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.7, 0.3),
-      new THREE.MeshLambertMaterial({ color: new THREE.Color(c.tunicColor) })
+      new THREE.MeshLambertMaterial({ color: new THREE.Color(tunicColor) })
     );
     torso.position.set(0, 0.85, 0);
     torso.castShadow = true;
 
     const head = new THREE.Mesh(
       new THREE.BoxGeometry(0.4, 0.4, 0.4),
-      new THREE.MeshLambertMaterial({ color: new THREE.Color(c.skinTone) })
+      new THREE.MeshLambertMaterial({ color: new THREE.Color(skinTone) })
     );
     head.position.set(0, 1.4, 0);
     head.castShadow = true;
