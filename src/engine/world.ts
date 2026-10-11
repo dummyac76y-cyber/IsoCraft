@@ -697,6 +697,10 @@ export class VoxelWorld {
   // -------------------------------------------------------------------------
 
   public setBlock(x: number, y: number, z: number, type: BlockType): boolean {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return false;
+    x = Math.floor(x);
+    y = Math.floor(y);
+    z = Math.floor(z);
     if (y < 0 || y >= CHUNK_HEIGHT) return false;
 
     this.surfaceVersion++;
