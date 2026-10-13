@@ -12,10 +12,13 @@ interface WorldModalProps {
   onWorldRegenerated: () => void;
 }
 
-// Security helper to validate and clamp world seed input
+// Security helper to validate and clamp world seed input safely
 const sanitizeSeed = (inputVal: string): number => {
-  const parsed = parseInt(inputVal, 10);
-  if (isNaN(parsed)) return 1;
+  if (typeof inputVal !== 'string') return 1;
+  // Truncate overly long inputs to mitigate DoS / huge string processing
+  const trimmed = inputVal.trim().slice(0, 10);
+  const parsed = parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed) || isNaN(parsed)) return 1;
   // Clamp seed to safe positive range [1, 999999]
   return Math.max(1, Math.min(999999, Math.floor(Math.abs(parsed))));
 };
@@ -54,20 +57,22 @@ export const WorldModal: React.FC<WorldModalProps> = ({
   onWorldRegenerated
 }) => {
   const [selectedPreset, setSelectedPreset] = useState<TerrainPreset>('meadow');
-  const [seed, setSeed] = useState<number>(() => Math.floor(Math.random() * 999999) + 1);
+  const [seedInput, setSeedInput] = useState<string>(() => String(Math.floor(Math.random() * 999999) + 1));
 
   if (!isOpen) return null;
 
   const handleGenerate = () => {
     if (!worldRef.current) return;
+    const finalSeed = sanitizeSeed(seedInput);
     sound.playLevelUp();
-    worldRef.current.generate(selectedPreset, seed);
+    worldRef.current.generate(selectedPreset, finalSeed);
     onWorldRegenerated();
     onClose();
   };
 
   const handleRandomSeed = () => {
-    setSeed(Math.floor(Math.random() * 999999) + 1);
+    const nextSeed = Math.floor(Math.random() * 999999) + 1;
+    setSeedInput(String(nextSeed));
     sound.playStep('stone');
   };
 
@@ -120,10 +125,11 @@ export const WorldModal: React.FC<WorldModalProps> = ({
           <input
             type="number"
             className="px-input flex-1"
-            value={seed}
+            value={seedInput}
             min={1}
             max={999999}
-            onChange={e => setSeed(sanitizeSeed(e.target.value))}
+            onChange={e => setSeedInput(e.target.value.slice(0, 10))}
+            onBlur={() => setSeedInput(String(sanitizeSeed(seedInput)))}
             aria-label="World seed"
           />
           <button type="button" className="px-btn" onClick={handleRandomSeed}>
