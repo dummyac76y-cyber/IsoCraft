@@ -33,6 +33,20 @@ const ARMOR_TINTS: Record<CharacterCustomization['armorTier'], number | null> = 
 
 const PLAYER_HEIGHT = 1.7;
 
+/**
+ * Security Helper: Validates hex color inputs to prevent Three.js Color constructor
+ * from throwing uncaught errors on invalid/malformed color strings which would crash
+ * the WebGL render loop.
+ */
+const HEX_COLOR_REGEX = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+export function safeHexColor(colorStr: string, fallbackHex: string): THREE.Color {
+  if (typeof colorStr === 'string' && HEX_COLOR_REGEX.test(colorStr)) {
+    return new THREE.Color(colorStr);
+  }
+  return new THREE.Color(fallbackHex);
+}
+
 function variantFor(c: CharacterCustomization): string {
   const list = PLAYER_VARIANTS[c.hairStyle] ?? PLAYER_VARIANTS.short;
   let hash = 0;
@@ -156,14 +170,14 @@ export class CharacterModel {
 
     const torso = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 0.7, 0.3),
-      new THREE.MeshLambertMaterial({ color: new THREE.Color(c.tunicColor) })
+      new THREE.MeshLambertMaterial({ color: safeHexColor(c.tunicColor, '#2563eb') })
     );
     torso.position.set(0, 0.85, 0);
     torso.castShadow = true;
 
     const head = new THREE.Mesh(
       new THREE.BoxGeometry(0.4, 0.4, 0.4),
-      new THREE.MeshLambertMaterial({ color: new THREE.Color(c.skinTone) })
+      new THREE.MeshLambertMaterial({ color: safeHexColor(c.skinTone, '#ffd1a4') })
     );
     head.position.set(0, 1.4, 0);
     head.castShadow = true;
