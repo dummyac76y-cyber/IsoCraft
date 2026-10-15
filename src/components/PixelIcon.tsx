@@ -225,8 +225,6 @@ export function iconForItem(item: { id: string; type: string }): PixelIconName {
       return 'block';
     case 'bookshelf':
       return 'book';
-    case 'bookshelf':
-      return 'book';
     default:
       break;
   }
