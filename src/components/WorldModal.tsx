@@ -20,6 +20,14 @@ const sanitizeSeed = (inputVal: string): number => {
   return Math.max(1, Math.min(999999, Math.floor(Math.abs(parsed))));
 };
 
+// Security Helper: Generate a cryptographically secure random world seed in range [1, 999999]
+// Prevents seed prediction/bias issues from Math.random() in environment generation
+const generateSecureSeed = (): number => {
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  return (array[0] % 999999) + 1;
+};
+
 const PRESETS: Array<{ id: TerrainPreset; name: string; description: string; icon: PixelIconName }> = [
   {
     id: 'meadow',
@@ -54,7 +62,7 @@ export const WorldModal: React.FC<WorldModalProps> = ({
   onWorldRegenerated
 }) => {
   const [selectedPreset, setSelectedPreset] = useState<TerrainPreset>('meadow');
-  const [seed, setSeed] = useState<number>(() => Math.floor(Math.random() * 999999) + 1);
+  const [seed, setSeed] = useState<number>(generateSecureSeed);
 
   if (!isOpen) return null;
 
@@ -67,7 +75,7 @@ export const WorldModal: React.FC<WorldModalProps> = ({
   };
 
   const handleRandomSeed = () => {
-    setSeed(Math.floor(Math.random() * 999999) + 1);
+    setSeed(generateSecureSeed());
     sound.playStep('stone');
   };
 
